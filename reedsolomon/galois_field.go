@@ -75,19 +75,19 @@ func (gf *GaloisField) Multiply(a int, b int) int {
     return gf.Ilog[log_sum]
 }
 
-func (gf *GaloisField) Divide(a int, b int) (int, error) {
+func (gf *GaloisField) Divide(a int, b int) int {
     if a == 0 {
-        return 0, nil
+        return 0
     }
     if b == 0 {
-        return 0, errors.New("0")
+        return -1
     }
 
     log_sub := gf.Log[a] - gf.Log[b]
     if log_sub < 0 {
         log_sub += (1 << uint32(gf.W)) - 1
     }
-    return gf.Ilog[log_sub], nil
+    return gf.Ilog[log_sub]
 }
 
 func (gf *GaloisField) PrintInfo() {
