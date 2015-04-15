@@ -60,7 +60,57 @@ func (rs *VanderReedSolomon) Encode(input []byte) [][]byte {
 }
 
 func (rs *VanderReedSolomon) Decode(input [][]byte) []byte {
+    data := make([][]byte, 0)
     output := make([]byte, 0)
+
+    ma := make([][]int, 0)
+    for i := 0; i < rs.n; i++ {
+        if len(ma) == rs.n {
+            break
+        }
+
+        if len(input[i]) != 0 {
+            data = append(data, input[i])
+            r := make([]int, rs.n)
+            r[i] = 1
+            ma = append(ma, r)
+        }
+    }
+
+    for i := 0; i < rs.m; i++ {
+        if len(ma) == rs.n {
+            break
+        }
+
+        if len(input[rs.n + i]) != 0 {
+            data = append(data, input[rs.n + i])
+            r := make([]int, rs.n)
+            copy(r, rs.vander[i])
+            ma = append(ma, r)
+        }
+    }
+
+    if len(ma) != rs.n {
+        return output
+    }
+
+    ma_i := rs.InverseMatrix(ma)
+    buf1 := make([]int, rs.n)
+    buf2 := make([]int, rs.n)
+    for i := 0; i < len(data[0]); i++ {
+        for j := 0; j < rs.n; j++ {
+            buf1[j] = int(data[j][i])
+            buf2[j] = 0
+        }
+        for j := 0; j < rs.n; j++ {
+            for k := 0; k < rs.n; k++ {
+                buf2[j] ^= rs.gf.Multiply(ma_i[j][k], buf1[k])
+            }
+        }
+        for j := 0; j < rs.n; j++ {
+            output = append(output, byte(buf2[j]))
+        }
+    }
     return output
 }
 

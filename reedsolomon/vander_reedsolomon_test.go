@@ -61,3 +61,36 @@ func TestInverseMatrix(t *testing.T) {
     t.Log("Verify", rs.MultiplyMatrices(ma, ma_i))
 }
 
+func TestEncodeDecode(t *testing.T) {
+    rs1 := MakeVanderReedSolomon(4, 2)
+    rs2 := MakeVanderReedSolomon(6, 3)
+
+    // test rs=4.2
+    data1 := make([]byte, 12)
+    for i, _ := range data1 {
+        data1[i] = byte(i + 1)
+    }
+
+    encode1 := rs1.Encode(data1)
+    t.Log("Encoded:", encode1)
+
+    encode1[0] = make([]byte, 0)
+    encode1[3] = make([]byte, 0)
+    data2 := rs1.Decode(encode1)
+    t.Log("Decoded:", data2)
+
+    // test rs=6.3
+    data3 := make([]byte, 24)
+    for i, _ := range data3 {
+        data3[i] = byte(i + 1)
+    }
+
+    encode2 := rs2.Encode(data3)
+    t.Log("Encoded:", encode2)
+
+    encode2[3] = make([]byte, 0)
+    encode2[5] = make([]byte, 0)
+    encode2[7] = make([]byte, 0)
+    data4 := rs2.Decode(encode2)
+    t.Log("Decoded:", data4)
+}
