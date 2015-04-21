@@ -13,6 +13,7 @@ It has these top-level messages:
 	VoteReply
 	AppendRequest
 	AppendReply
+	Log
 */
 package proto
 
@@ -95,6 +96,7 @@ type AppendRequest struct {
 	PrevLogIndex     *uint64 `protobuf:"varint,3,req,name=prevLogIndex" json:"prevLogIndex,omitempty"`
 	PrevLogTerm      *uint64 `protobuf:"varint,4,req,name=prevLogTerm" json:"prevLogTerm,omitempty"`
 	CommitIndex      *uint64 `protobuf:"varint,5,req,name=commitIndex" json:"commitIndex,omitempty"`
+	Logs             []*Log  `protobuf:"bytes,6,rep,name=logs" json:"logs,omitempty"`
 	XXX_unrecognized []byte  `json:"-"`
 }
 
@@ -137,6 +139,13 @@ func (m *AppendRequest) GetCommitIndex() uint64 {
 	return 0
 }
 
+func (m *AppendRequest) GetLogs() []*Log {
+	if m != nil {
+		return m.Logs
+	}
+	return nil
+}
+
 type AppendReply struct {
 	Term             *uint64 `protobuf:"varint,1,req,name=term" json:"term,omitempty"`
 	Success          *bool   `protobuf:"varint,2,req,name=success" json:"success,omitempty"`
@@ -159,6 +168,46 @@ func (m *AppendReply) GetSuccess() bool {
 		return *m.Success
 	}
 	return false
+}
+
+type Log struct {
+	LogId            *uint64  `protobuf:"varint,1,req,name=logId" json:"logId,omitempty"`
+	Records          []string `protobuf:"bytes,2,rep,name=records" json:"records,omitempty"`
+	ReadSet          []int32  `protobuf:"varint,3,rep,name=readSet" json:"readSet,omitempty"`
+	WriteSet         []int32  `protobuf:"varint,4,rep,name=writeSet" json:"writeSet,omitempty"`
+	XXX_unrecognized []byte   `json:"-"`
+}
+
+func (m *Log) Reset()         { *m = Log{} }
+func (m *Log) String() string { return proto1.CompactTextString(m) }
+func (*Log) ProtoMessage()    {}
+
+func (m *Log) GetLogId() uint64 {
+	if m != nil && m.LogId != nil {
+		return *m.LogId
+	}
+	return 0
+}
+
+func (m *Log) GetRecords() []string {
+	if m != nil {
+		return m.Records
+	}
+	return nil
+}
+
+func (m *Log) GetReadSet() []int32 {
+	if m != nil {
+		return m.ReadSet
+	}
+	return nil
+}
+
+func (m *Log) GetWriteSet() []int32 {
+	if m != nil {
+		return m.WriteSet
+	}
+	return nil
 }
 
 func init() {

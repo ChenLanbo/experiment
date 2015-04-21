@@ -21,7 +21,8 @@ message AppendRequest {
     required string leaderId = 2;
     required uint64 prevLogIndex = 3;
     required uint64 prevLogTerm = 4;
-    required uint64 commitIndex = 5;
+    required uint64 commitIndex = 5; // leader's commit index
+    repeated Log logs = 6;
 }
 
 message AppendReply {
@@ -29,3 +30,9 @@ message AppendReply {
     required bool success = 2;
 }
 
+message Log {
+    required uint64 logId = 1;
+    repeated string records = 2;
+    repeated int32 readSet = 3;
+    repeated int32 writeSet = 4;
+}
