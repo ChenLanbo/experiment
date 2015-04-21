@@ -170,11 +170,13 @@ func (m *AppendReply) GetSuccess() bool {
 	return false
 }
 
+// next tag: 6
 type Log struct {
 	LogId            *uint64  `protobuf:"varint,1,req,name=logId" json:"logId,omitempty"`
 	Records          []string `protobuf:"bytes,2,rep,name=records" json:"records,omitempty"`
 	ReadSet          []int32  `protobuf:"varint,3,rep,name=readSet" json:"readSet,omitempty"`
 	WriteSet         []int32  `protobuf:"varint,4,rep,name=writeSet" json:"writeSet,omitempty"`
+	Checksum         *uint32  `protobuf:"varint,5,req,name=checksum" json:"checksum,omitempty"`
 	XXX_unrecognized []byte   `json:"-"`
 }
 
@@ -208,6 +210,13 @@ func (m *Log) GetWriteSet() []int32 {
 		return m.WriteSet
 	}
 	return nil
+}
+
+func (m *Log) GetChecksum() uint32 {
+	if m != nil && m.Checksum != nil {
+		return *m.Checksum
+	}
+	return 0
 }
 
 func init() {
