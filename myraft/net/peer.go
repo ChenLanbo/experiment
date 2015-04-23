@@ -3,5 +3,13 @@ package net
 import "github.com/chenlanbo/experiment/myraft/proto"
 
 type Peer interface {
-    SendVoteRequest(req *proto.VoteRequest) (*proto.VoteReply, error)
+    VoteRequest(req *proto.VoteRequest) (*proto.VoteReply, error)
+    AppendRequest(req *proto.AppendRequest) (*proto.AppendReply, error)
+}
+
+type PeerServer interface {
+    Start()
+    Shutdown()
+    VoteChan() chan *VoteCallback
+    AppendChan() chan *AppendCallback
 }
