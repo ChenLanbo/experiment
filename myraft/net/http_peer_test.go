@@ -18,11 +18,11 @@ func TestSendVoteRequest(t *testing.T) {
         Granted: proto.Bool(false),
     }
     go func() {
-        cb := <-server.VoteChan
+        cb := <-server.VoteChan()
         cb.Rep <- expected_rep
     } ()
 
-    peer := NewHttpPeer(ADDR)
+    peer := NewHttpPeerClient(ADDR)
     req := &myproto.VoteRequest {
         Term: proto.Uint64(1),
         CandidateId: proto.String(ADDR),

@@ -30,11 +30,12 @@ message AppendReply {
     required bool success = 2;
 }
 
-// next tag: 6
+// next tag: 7
 message Log {
     required uint64 logId = 1;
-    repeated string records = 2;
-    repeated int32 readSet = 3;
-    repeated int32 writeSet = 4;
-    required uint32 checksum = 5; // crc32 checksum for the log
+    required uint64 term = 2;
+    repeated string records = 3;
+    repeated int32 readSet = 4;
+    repeated int32 writeSet = 5;
+    required uint32 checksum = 6; // crc32 checksum for the log
 }

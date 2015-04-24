@@ -9,13 +9,13 @@ import "net/url"
 import myproto "github.com/chenlanbo/experiment/myraft/proto"
 import "github.com/golang/protobuf/proto"
 
-type HttpPeer struct {
+type HttpPeerClient struct {
     addr string
     client *http.Client
 }
 
-func NewHttpPeer(address string) *HttpPeer {
-    peer := &HttpPeer{}
+func NewHttpPeerClient(address string) *HttpPeerClient {
+    peer := &HttpPeerClient{}
     peer.addr = address
     peer.client = &http.Client{}
 
@@ -42,7 +42,7 @@ func GetAppendRequestURL(addr string) string {
     return url.String()
 }
 
-func (peer *HttpPeer) VoteRequest(vote_req *myproto.VoteRequest) (*myproto.VoteReply, error) {
+func (peer *HttpPeerClient) VoteRequest(vote_req *myproto.VoteRequest) (*myproto.VoteReply, error) {
     raw_vote_req, err := proto.Marshal(vote_req)
     if err != nil {
         log.Fatal("protobuf marshaling error:", err)
@@ -81,7 +81,7 @@ func (peer *HttpPeer) VoteRequest(vote_req *myproto.VoteRequest) (*myproto.VoteR
     return vote_rep, nil
 }
 
-func (peer *HttpPeer) AppendRequest(append_req *myproto.AppendRequest) (*myproto.AppendReply, error) {
+func (peer *HttpPeerClient) AppendRequest(append_req *myproto.AppendRequest) (*myproto.AppendReply, error) {
     raw_append_req, err := proto.Marshal(append_req)
     if err != nil {
         log.Fatal("protobuf marshaling error:", err)

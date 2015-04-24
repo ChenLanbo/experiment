@@ -170,13 +170,14 @@ func (m *AppendReply) GetSuccess() bool {
 	return false
 }
 
-// next tag: 6
+// next tag: 7
 type Log struct {
 	LogId            *uint64  `protobuf:"varint,1,req,name=logId" json:"logId,omitempty"`
-	Records          []string `protobuf:"bytes,2,rep,name=records" json:"records,omitempty"`
-	ReadSet          []int32  `protobuf:"varint,3,rep,name=readSet" json:"readSet,omitempty"`
-	WriteSet         []int32  `protobuf:"varint,4,rep,name=writeSet" json:"writeSet,omitempty"`
-	Checksum         *uint32  `protobuf:"varint,5,req,name=checksum" json:"checksum,omitempty"`
+	Term             *uint64  `protobuf:"varint,2,req,name=term" json:"term,omitempty"`
+	Records          []string `protobuf:"bytes,3,rep,name=records" json:"records,omitempty"`
+	ReadSet          []int32  `protobuf:"varint,4,rep,name=readSet" json:"readSet,omitempty"`
+	WriteSet         []int32  `protobuf:"varint,5,rep,name=writeSet" json:"writeSet,omitempty"`
+	Checksum         *uint32  `protobuf:"varint,6,req,name=checksum" json:"checksum,omitempty"`
 	XXX_unrecognized []byte   `json:"-"`
 }
 
@@ -187,6 +188,13 @@ func (*Log) ProtoMessage()    {}
 func (m *Log) GetLogId() uint64 {
 	if m != nil && m.LogId != nil {
 		return *m.LogId
+	}
+	return 0
+}
+
+func (m *Log) GetTerm() uint64 {
+	if m != nil && m.Term != nil {
+		return *m.Term
 	}
 	return 0
 }

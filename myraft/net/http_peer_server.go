@@ -33,6 +33,7 @@ func (h *VoteHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
         Req: req,
         Rep: make(chan myproto.VoteReply, 1),
     }
+    defer close(cb.Rep)
 
     h.server.mu.Lock()
     h.server.voteChan <- cb
@@ -71,6 +72,7 @@ func (h *AppendHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
         Req: req,
         Rep: make(chan myproto.AppendReply, 1),
     }
+    defer close(cb.Rep)
 
     h.server.mu.Lock()
     h.server.appendChan <- cb

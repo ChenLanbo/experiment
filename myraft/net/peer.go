@@ -2,7 +2,7 @@ package net
 
 import "github.com/chenlanbo/experiment/myraft/proto"
 
-type Peer interface {
+type PeerClient interface {
     VoteRequest(req *proto.VoteRequest) (*proto.VoteReply, error)
     AppendRequest(req *proto.AppendRequest) (*proto.AppendReply, error)
 }
