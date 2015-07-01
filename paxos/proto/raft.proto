@@ -1,0 +1,31 @@
+package proto;
+
+message VoteRequest {
+    required uint64 term = 1;
+    required string candidateId = 2;
+    required uint64 lastLogTerm = 3;
+    required uint64 lastLogIndex = 4;
+}
+
+message VoteReply {
+    required bool granted = 1;
+    required uint64 term = 2;
+}
+
+message AppendRequest {
+    required uint64 term = 1;
+    required string leaderId = 2;
+    required uint64 prevLogTerm = 3;
+    required uint64 prevLogIndex = 4;
+    required uint64 commitIndex = 5;
+}
+
+message AppendReply {
+    required bool success = 1;
+    required uint64 term = 2;
+}
+
+message Log {
+    required uint64 term = 1;
+    required uint64 logId = 2;
+}
