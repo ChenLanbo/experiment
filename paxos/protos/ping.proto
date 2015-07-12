@@ -1,0 +1,13 @@
+package protos;
+
+message Ping {
+    required string message = 1;
+}
+
+message Pong {
+    required string message = 1;
+}
+
+service PingServer {
+    rpc PingPong(Ping) returns(Pong) {}
+}

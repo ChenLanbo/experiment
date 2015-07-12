@@ -3,7 +3,7 @@
 // DO NOT EDIT!
 
 /*
-Package proto is a generated protocol buffer package.
+Package protos is a generated protocol buffer package.
 
 It is generated from these files:
 	raft.proto
@@ -15,13 +15,22 @@ It has these top-level messages:
 	AppendReply
 	Log
 */
-package proto
+package protos
 
-import proto1 "github.com/golang/protobuf/proto"
+import proto "github.com/golang/protobuf/proto"
 import math "math"
 
+import (
+	context "golang.org/x/net/context"
+	grpc "google.golang.org/grpc"
+)
+
 // Reference imports to suppress errors if they are not otherwise used.
-var _ = proto1.Marshal
+var _ context.Context
+var _ grpc.ClientConn
+
+// Reference imports to suppress errors if they are not otherwise used.
+var _ = proto.Marshal
 var _ = math.Inf
 
 type VoteRequest struct {
@@ -33,7 +42,7 @@ type VoteRequest struct {
 }
 
 func (m *VoteRequest) Reset()         { *m = VoteRequest{} }
-func (m *VoteRequest) String() string { return proto1.CompactTextString(m) }
+func (m *VoteRequest) String() string { return proto.CompactTextString(m) }
 func (*VoteRequest) ProtoMessage()    {}
 
 func (m *VoteRequest) GetTerm() uint64 {
@@ -71,7 +80,7 @@ type VoteReply struct {
 }
 
 func (m *VoteReply) Reset()         { *m = VoteReply{} }
-func (m *VoteReply) String() string { return proto1.CompactTextString(m) }
+func (m *VoteReply) String() string { return proto.CompactTextString(m) }
 func (*VoteReply) ProtoMessage()    {}
 
 func (m *VoteReply) GetGranted() bool {
@@ -98,7 +107,7 @@ type AppendRequest struct {
 }
 
 func (m *AppendRequest) Reset()         { *m = AppendRequest{} }
-func (m *AppendRequest) String() string { return proto1.CompactTextString(m) }
+func (m *AppendRequest) String() string { return proto.CompactTextString(m) }
 func (*AppendRequest) ProtoMessage()    {}
 
 func (m *AppendRequest) GetTerm() uint64 {
@@ -143,7 +152,7 @@ type AppendReply struct {
 }
 
 func (m *AppendReply) Reset()         { *m = AppendReply{} }
-func (m *AppendReply) String() string { return proto1.CompactTextString(m) }
+func (m *AppendReply) String() string { return proto.CompactTextString(m) }
 func (*AppendReply) ProtoMessage()    {}
 
 func (m *AppendReply) GetSuccess() bool {
@@ -167,7 +176,7 @@ type Log struct {
 }
 
 func (m *Log) Reset()         { *m = Log{} }
-func (m *Log) String() string { return proto1.CompactTextString(m) }
+func (m *Log) String() string { return proto.CompactTextString(m) }
 func (*Log) ProtoMessage()    {}
 
 func (m *Log) GetTerm() uint64 {
@@ -184,5 +193,90 @@ func (m *Log) GetLogId() uint64 {
 	return 0
 }
 
-func init() {
+// Client API for RaftServer service
+
+type RaftServerClient interface {
+	// Vote request
+	Vote(ctx context.Context, in *VoteRequest, opts ...grpc.CallOption) (*VoteReply, error)
+	// Append request
+	Append(ctx context.Context, in *AppendRequest, opts ...grpc.CallOption) (*AppendReply, error)
+}
+
+type raftServerClient struct {
+	cc *grpc.ClientConn
+}
+
+func NewRaftServerClient(cc *grpc.ClientConn) RaftServerClient {
+	return &raftServerClient{cc}
+}
+
+func (c *raftServerClient) Vote(ctx context.Context, in *VoteRequest, opts ...grpc.CallOption) (*VoteReply, error) {
+	out := new(VoteReply)
+	err := grpc.Invoke(ctx, "/protos.RaftServer/Vote", in, out, c.cc, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *raftServerClient) Append(ctx context.Context, in *AppendRequest, opts ...grpc.CallOption) (*AppendReply, error) {
+	out := new(AppendReply)
+	err := grpc.Invoke(ctx, "/protos.RaftServer/Append", in, out, c.cc, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// Server API for RaftServer service
+
+type RaftServerServer interface {
+	// Vote request
+	Vote(context.Context, *VoteRequest) (*VoteReply, error)
+	// Append request
+	Append(context.Context, *AppendRequest) (*AppendReply, error)
+}
+
+func RegisterRaftServerServer(s *grpc.Server, srv RaftServerServer) {
+	s.RegisterService(&_RaftServer_serviceDesc, srv)
+}
+
+func _RaftServer_Vote_Handler(srv interface{}, ctx context.Context, codec grpc.Codec, buf []byte) (interface{}, error) {
+	in := new(VoteRequest)
+	if err := codec.Unmarshal(buf, in); err != nil {
+		return nil, err
+	}
+	out, err := srv.(RaftServerServer).Vote(ctx, in)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func _RaftServer_Append_Handler(srv interface{}, ctx context.Context, codec grpc.Codec, buf []byte) (interface{}, error) {
+	in := new(AppendRequest)
+	if err := codec.Unmarshal(buf, in); err != nil {
+		return nil, err
+	}
+	out, err := srv.(RaftServerServer).Append(ctx, in)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+var _RaftServer_serviceDesc = grpc.ServiceDesc{
+	ServiceName: "protos.RaftServer",
+	HandlerType: (*RaftServerServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "Vote",
+			Handler:    _RaftServer_Vote_Handler,
+		},
+		{
+			MethodName: "Append",
+			Handler:    _RaftServer_Append_Handler,
+		},
+	},
+	Streams: []grpc.StreamDesc{},
 }

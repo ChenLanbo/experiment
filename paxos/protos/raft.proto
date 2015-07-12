@@ -1,4 +1,4 @@
-package proto;
+package protos;
 
 message VoteRequest {
     required uint64 term = 1;
@@ -28,4 +28,13 @@ message AppendReply {
 message Log {
     required uint64 term = 1;
     required uint64 logId = 2;
+}
+
+service RaftServer {
+
+    // Vote request
+    rpc Vote(VoteRequest) returns (VoteReply) {}
+
+    // Append request
+    rpc Append(AppendRequest) returns (AppendReply) {}
 }
