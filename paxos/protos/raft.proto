@@ -18,6 +18,7 @@ message AppendRequest {
     required uint64 prevLogTerm = 3;
     required uint64 prevLogIndex = 4;
     required uint64 commitIndex = 5;
+    repeated Log logs = 6;
 }
 
 message AppendReply {

@@ -2,6 +2,12 @@ package raft
 
 import (
 	"time"
+	"flag"
+)
+
+var (
+	queueSize = flag.Uint("raft_ops_queue_size", 10, "size of operation queue")
+	queuePullTimeout = flag.Uint("raft_ops_queue_pull_timeout", 1000, "pull timeout")
 )
 
 type OperationQueue struct {
@@ -25,6 +31,10 @@ func (q *OperationQueue) Pull(timeout time.Duration) (*RaftOperation) {
 	}
 }
 
+func (q *OperationQueue) Close() {
+	close(q.queue)
+}
+
 func NewOperationQueue() (*OperationQueue) {
-	return &OperationQueue{queue:make(chan *RaftOperation, 10)}
+	return &OperationQueue{queue:make(chan *RaftOperation, *queueSize)}
 }

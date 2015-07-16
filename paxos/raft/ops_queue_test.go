@@ -2,7 +2,7 @@ package raft
 
 import (
 	"testing"
-	"github.com/chenlanbo/experiment/paxos/protos"
+	pb "github.com/chenlanbo/experiment/paxos/protos"
 	"github.com/golang/protobuf/proto"
 	"time"
 )
@@ -10,12 +10,12 @@ import (
 func TestOpsQueue(t *testing.T) {
     queue := NewOperationQueue()
 
-	voteRequest := &protos.VoteRequest{Term:proto.Uint64(2),
+	voteRequest := &pb.VoteRequest{Term:proto.Uint64(2),
 									   CandidateId:proto.String("localhost:12345"),
 									   LastLogTerm:proto.Uint64(1),
 									   LastLogIndex:proto.Uint64(1)}
 
-    voteReply := &protos.VoteReply{Granted:proto.Bool(true),
+    voteReply := &pb.VoteReply{Granted:proto.Bool(true),
                                    Term:proto.Uint64(1)}
 
 	op := NewRaftOperation(NewRaftRequest(voteRequest, nil))

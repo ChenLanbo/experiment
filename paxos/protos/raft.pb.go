@@ -103,6 +103,7 @@ type AppendRequest struct {
 	PrevLogTerm      *uint64 `protobuf:"varint,3,req,name=prevLogTerm" json:"prevLogTerm,omitempty"`
 	PrevLogIndex     *uint64 `protobuf:"varint,4,req,name=prevLogIndex" json:"prevLogIndex,omitempty"`
 	CommitIndex      *uint64 `protobuf:"varint,5,req,name=commitIndex" json:"commitIndex,omitempty"`
+	Logs             []*Log  `protobuf:"bytes,6,rep,name=logs" json:"logs,omitempty"`
 	XXX_unrecognized []byte  `json:"-"`
 }
 
@@ -143,6 +144,13 @@ func (m *AppendRequest) GetCommitIndex() uint64 {
 		return *m.CommitIndex
 	}
 	return 0
+}
+
+func (m *AppendRequest) GetLogs() []*Log {
+	if m != nil {
+		return m.Logs
+	}
+	return nil
 }
 
 type AppendReply struct {
