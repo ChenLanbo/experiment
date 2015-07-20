@@ -14,6 +14,8 @@ It has these top-level messages:
 	AppendRequest
 	AppendReply
 	Log
+	PutRequest
+	PutReply
 */
 package protos
 
@@ -201,6 +203,55 @@ func (m *Log) GetLogId() uint64 {
 	return 0
 }
 
+// Public APIs
+type PutRequest struct {
+	Key              *string `protobuf:"bytes,1,req,name=key" json:"key,omitempty"`
+	Value            []byte  `protobuf:"bytes,2,req,name=value" json:"value,omitempty"`
+	XXX_unrecognized []byte  `json:"-"`
+}
+
+func (m *PutRequest) Reset()         { *m = PutRequest{} }
+func (m *PutRequest) String() string { return proto.CompactTextString(m) }
+func (*PutRequest) ProtoMessage()    {}
+
+func (m *PutRequest) GetKey() string {
+	if m != nil && m.Key != nil {
+		return *m.Key
+	}
+	return ""
+}
+
+func (m *PutRequest) GetValue() []byte {
+	if m != nil {
+		return m.Value
+	}
+	return nil
+}
+
+type PutReply struct {
+	Success          *bool   `protobuf:"varint,1,req,name=success" json:"success,omitempty"`
+	LeaderId         *string `protobuf:"bytes,2,opt,name=leaderId" json:"leaderId,omitempty"`
+	XXX_unrecognized []byte  `json:"-"`
+}
+
+func (m *PutReply) Reset()         { *m = PutReply{} }
+func (m *PutReply) String() string { return proto.CompactTextString(m) }
+func (*PutReply) ProtoMessage()    {}
+
+func (m *PutReply) GetSuccess() bool {
+	if m != nil && m.Success != nil {
+		return *m.Success
+	}
+	return false
+}
+
+func (m *PutReply) GetLeaderId() string {
+	if m != nil && m.LeaderId != nil {
+		return *m.LeaderId
+	}
+	return ""
+}
+
 // Client API for RaftServer service
 
 type RaftServerClient interface {
@@ -208,6 +259,8 @@ type RaftServerClient interface {
 	Vote(ctx context.Context, in *VoteRequest, opts ...grpc.CallOption) (*VoteReply, error)
 	// Append request
 	Append(ctx context.Context, in *AppendRequest, opts ...grpc.CallOption) (*AppendReply, error)
+	// Public APIs
+	Put(ctx context.Context, in *PutRequest, opts ...grpc.CallOption) (*PutReply, error)
 }
 
 type raftServerClient struct {
@@ -236,6 +289,15 @@ func (c *raftServerClient) Append(ctx context.Context, in *AppendRequest, opts .
 	return out, nil
 }
 
+func (c *raftServerClient) Put(ctx context.Context, in *PutRequest, opts ...grpc.CallOption) (*PutReply, error) {
+	out := new(PutReply)
+	err := grpc.Invoke(ctx, "/protos.RaftServer/Put", in, out, c.cc, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // Server API for RaftServer service
 
 type RaftServerServer interface {
@@ -243,6 +305,8 @@ type RaftServerServer interface {
 	Vote(context.Context, *VoteRequest) (*VoteReply, error)
 	// Append request
 	Append(context.Context, *AppendRequest) (*AppendReply, error)
+	// Public APIs
+	Put(context.Context, *PutRequest) (*PutReply, error)
 }
 
 func RegisterRaftServerServer(s *grpc.Server, srv RaftServerServer) {
@@ -273,6 +337,18 @@ func _RaftServer_Append_Handler(srv interface{}, ctx context.Context, codec grpc
 	return out, nil
 }
 
+func _RaftServer_Put_Handler(srv interface{}, ctx context.Context, codec grpc.Codec, buf []byte) (interface{}, error) {
+	in := new(PutRequest)
+	if err := codec.Unmarshal(buf, in); err != nil {
+		return nil, err
+	}
+	out, err := srv.(RaftServerServer).Put(ctx, in)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 var _RaftServer_serviceDesc = grpc.ServiceDesc{
 	ServiceName: "protos.RaftServer",
 	HandlerType: (*RaftServerServer)(nil),
@@ -284,6 +360,10 @@ var _RaftServer_serviceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Append",
 			Handler:    _RaftServer_Append_Handler,
+		},
+		{
+			MethodName: "Put",
+			Handler:    _RaftServer_Put_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{},

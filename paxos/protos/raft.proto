@@ -31,6 +31,17 @@ message Log {
     required uint64 logId = 2;
 }
 
+// Public APIs
+message PutRequest {
+    required string key = 1;
+    required bytes  value = 2;
+}
+
+message PutReply {
+    required bool success = 1;
+    optional string leaderId = 2;
+}
+
 service RaftServer {
 
     // Vote request
@@ -38,4 +49,7 @@ service RaftServer {
 
     // Append request
     rpc Append(AppendRequest) returns (AppendReply) {}
+
+    // Public APIs
+    rpc Put(PutRequest) returns (PutReply) {}
 }

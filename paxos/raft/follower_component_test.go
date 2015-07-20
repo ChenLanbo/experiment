@@ -14,7 +14,7 @@ var (
 	leaderId    string
 )
 
-func setUp() {
+func setUpFollower() {
 	peers := make([]string, 3)
 	peers[0], peers[1], peers[2] = "localhost:10001", "localhost:10002", "localhost:10003"
 	candidateId, leaderId = peers[1], peers[1]
@@ -23,7 +23,7 @@ func setUp() {
 	follower = NewFollower(nodeMaster)
 }
 
-func tearDown() {
+func tearDownFollower() {
 	nodeMaster.Stop()
 
 	follower = nil
@@ -31,8 +31,8 @@ func tearDown() {
 }
 
 func TestTimeoutWithNoRequests(t *testing.T) {
-	setUp()
-	defer tearDown()
+	setUpFollower()
+	defer tearDownFollower()
 
 	follower.ProcessOneRequest()
 
@@ -43,8 +43,8 @@ func TestTimeoutWithNoRequests(t *testing.T) {
 }
 
 func TestVote(t *testing.T) {
-	setUp()
-	defer tearDown()
+	setUpFollower()
+	defer tearDownFollower()
 
 	voteRequest1 := &pb.VoteRequest{
 		Term:proto.Uint64(1),
@@ -102,8 +102,8 @@ func TestVote(t *testing.T) {
 }
 
 func TestAppend(t *testing.T) {
-	setUp()
-	defer tearDown()
+	setUpFollower()
+	defer tearDownFollower()
 
 	leaderId := "localhost:10002"
 

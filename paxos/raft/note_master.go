@@ -23,6 +23,21 @@ type NodeMaster struct {
 	me    int
 }
 
+func (nodeMaster *NodeMaster) MyEndpoint() string {
+	return nodeMaster.peers[nodeMaster.me]
+}
+
+func (nodeMaster *NodeMaster) PeerEndpoints() []string {
+	endpoints := make([]string, 0)
+	for id, peer := range(nodeMaster.peers) {
+		if id == nodeMaster.me {
+			continue
+		}
+		endpoints = append(endpoints, peer)
+	}
+	return endpoints
+}
+
 func (nodeMaster *NodeMaster) Start() {
 	go func() {
 		for {

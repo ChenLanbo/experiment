@@ -51,3 +51,31 @@ func TestAppend(t *testing.T) {
 		t.Fail()
 	}
 }
+
+func TestPoll(t *testing.T) {
+	*pollTimeout = 2000
+	store := NewStore()
+
+	batch1 := make([]pb.Log, 5)
+	for i := 0; i < 5; i++ {
+		batch1[i] = pb.Log{LogId:proto.Uint64(uint64(i + 1)), Term:proto.Uint64(1)}
+	}
+
+	err := store.Append(0, batch1)
+	if err != nil && store.LatestIndex() != 5 && store.CommitIndex() != 0 {
+		t.Fatal("error")
+		t.Fail()
+	}
+
+	l := store.Poll(1)
+	if l == nil || *l.LogId != 1 || *l.Term != 1{
+		t.Fatal("error")
+		t.Fail()
+	}
+
+	l = store.Poll(6)
+	if l != nil {
+		t.Fatal("error")
+		t.Fail()
+	}
+}

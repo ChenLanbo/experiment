@@ -5,7 +5,13 @@ import (
 	"github.com/golang/protobuf/proto"
 	"sync"
 	"errors"
-	"log"
+	"flag"
+	"time"
+)
+
+var (
+	batchSize = flag.Int("raft_store_batch_size", 10, "")
+	pollTimeout = flag.Int("raft_store_poll_timeout", 10, "")
 )
 
 type Store struct {
@@ -47,11 +53,22 @@ func (s *Store) CommitIndex() uint64 {
 	return s.commitIndex
 }
 
-func (s *Store) LatestIndex() uint64 {
+func (s *Store) SetCommitIndex(commitIndex uint64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	log.Print("Log length: ", len(s.logs))
+	if *s.logs[len(s.logs) - 1].LogId < commitIndex {
+		return
+	}
+
+	if s.commitIndex < commitIndex {
+		s.commitIndex = commitIndex
+	}
+}
+
+func (s *Store) LatestIndex() uint64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	return *(s.logs[len(s.logs) - 1]).LogId
 }
@@ -84,14 +101,20 @@ func (s *Store) Match(logId, term uint64) (bool) {
 }
 
 func (s *Store) Read(logId uint64) *pb.Log {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	if logId >= uint64(len(s.logs)) {
 		return nil
 	}
 
 	return &s.logs[logId]
+}
+
+func (s *Store) Poll(logId uint64) *pb.Log {
+	l := s.Read(logId)
+	if l != nil {
+		return l
+	}
+	<- time.After(time.Millisecond * time.Duration(*pollTimeout))
+	return s.Read(logId)
 }
 
 func (s *Store) Append(commitIndex uint64, logs []pb.Log) error {
@@ -113,6 +136,7 @@ func (s *Store) Append(commitIndex uint64, logs []pb.Log) error {
 	}
 
 	if len(logs) > 0 && *logs[0].LogId > *s.logs[len(s.logs) - 1].LogId + 1 {
+		// Gap
 		return errors.New("LogId not continuous")
 	}
 
@@ -140,6 +164,17 @@ func (s *Store) Append(commitIndex uint64, logs []pb.Log) error {
 	}
 
 	return nil
+}
+
+func (s *Store) Write(data []byte) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	newLog := pb.Log{}
+	newLog.LogId = proto.Uint64(*s.logs[len(s.logs) - 1].LogId + 1)
+	newLog.Term = proto.Uint64(s.currentTerm)
+
+	s.logs = append(s.logs, newLog)
 }
 
 func NewStore() (*Store) {
