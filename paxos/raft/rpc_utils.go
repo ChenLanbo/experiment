@@ -19,7 +19,7 @@ func SendVote(peer string, request *pb.VoteRequest) (*pb.VoteReply, error) {
 
 	reply, err1 := c.Vote(context.Background(), request)
 	if err1 != nil {
-		log.Fatal("")
+		log.Fatal(err1, "\n")
 		return nil, err1
 	}
 

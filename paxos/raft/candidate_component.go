@@ -8,6 +8,7 @@ import (
 	pb "github.com/chenlanbo/experiment/paxos/protos"
 	"github.com/golang/protobuf/proto"
 	"flag"
+	"log"
 )
 
 var (
@@ -93,21 +94,31 @@ func (candidate *Candidate) VoteSelfOnce() {
 	candidate.mu.Lock()
 	defer candidate.mu.Unlock()
 
+	log.Print("VoteSelfOnce\n")
 	// 1. Increment current term
 	candidate.nodeMaster.store.IncrementCurrentTerm()
 
 	// 2. Send votes to peers
+	// TODO: make this concurrent
 	for _, peer := range(candidate.nodeMaster.peers) {
 		if peer == candidate.nodeMaster.peers[candidate.nodeMaster.me] {
 			continue
 		}
 
-		reply, err := SendVote(peer, nil)
+		l := candidate.nodeMaster.store.Read(candidate.nodeMaster.store.LatestIndex())
+		request := &pb.VoteRequest{}
+		request.Term = proto.Uint64(candidate.nodeMaster.store.CurrentTerm())
+		request.CandidateId = proto.String(candidate.nodeMaster.MyEndpoint())
+		request.LastLogIndex = proto.Uint64(*l.LogId)
+		request.LastLogTerm = proto.Uint64(*l.Term)
+		reply, err := SendVote(peer, request)
 		if err != nil {
+			log.Fatal(err, "\n")
 			continue
 		}
 
 		if *reply.Granted {
+			log.Println("Granted from peer", peer, "\n")
 			numSuccess++
 		} else {
 			if candidate.nodeMaster.store.CurrentTerm() < *reply.Term {
@@ -118,7 +129,7 @@ func (candidate *Candidate) VoteSelfOnce() {
 			}
 		}
 
-		if numSuccess + 1 > len(candidate.nodeMaster.peers) {
+		if numSuccess + 1 > len(candidate.nodeMaster.peers) / 2 {
 			// Guaranteed to be the new leader
 			candidate.nodeMaster.state = LEADER
 			break
@@ -131,4 +142,14 @@ func (candidate *Candidate) isCandidate() bool {
 	defer candidate.mu.Unlock()
 
 	return candidate.nodeMaster.state == CANDIDATE
+}
+
+///////////////////////////////////////////////////////////////
+// Constructor
+///////////////////////////////////////////////////////////////
+
+func NewCandidate(nodeMaster *NodeMaster) *Candidate {
+	candidate := &Candidate{}
+	candidate.nodeMaster = nodeMaster
+	return candidate
 }

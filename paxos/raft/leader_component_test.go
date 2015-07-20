@@ -35,7 +35,7 @@ func (test *LeaderComponentTest) setUp() {
 	}
 
 	test.s1 = grpc.NewServer()
-	pb.RegisterRaftServerServer(test.s1, &testRpcServer{})
+	pb.RegisterRaftServerServer(test.s1, &LeaderComponentTestRpcServer{})
 	go func() {
 		test.s1.Serve(l1)
 	} ()
@@ -48,7 +48,7 @@ func (test *LeaderComponentTest) setUp() {
 	}
 
 	test.s2 = grpc.NewServer()
-	pb.RegisterRaftServerServer(test.s2, &testRpcServer{})
+	pb.RegisterRaftServerServer(test.s2, &LeaderComponentTestRpcServer{})
 	go func() {
 		test.s2.Serve(l2)
 	} ()
@@ -63,20 +63,20 @@ func (test *LeaderComponentTest) tearDown() {
 	test.nodeMaster = nil
 }
 
-type testRpcServer struct {}
+type LeaderComponentTestRpcServer struct {}
 
-func (s *testRpcServer) Vote(ctx context.Context, request *pb.VoteRequest) (*pb.VoteReply, error) {
+func (s *LeaderComponentTestRpcServer) Vote(ctx context.Context, request *pb.VoteRequest) (*pb.VoteReply, error) {
 	return nil, errors.New("Invalid operation")
 }
 
-func (s *testRpcServer) Append(ctx context.Context, request *pb.AppendRequest) (*pb.AppendReply, error) {
+func (s *LeaderComponentTestRpcServer) Append(ctx context.Context, request *pb.AppendRequest) (*pb.AppendReply, error) {
 	reply := &pb.AppendReply{}
 	reply.Success = proto.Bool(true)
 	reply.Term = proto.Uint64(1)
 	return reply, nil
 }
 
-func (s *testRpcServer) Put(ctx context.Context, request *pb.PutRequest) (*pb.PutReply, error) {
+func (s *LeaderComponentTestRpcServer) Put(ctx context.Context, request *pb.PutRequest) (*pb.PutReply, error) {
 	return nil, errors.New("Invalid operation")
 }
 
@@ -145,4 +145,8 @@ func TestLogCommitter(t *testing.T) {
 		t.Fatal("CommitIndex not advanced:", commitIndex, "expected:", n)
 		t.Fail()
 	}
+}
+
+func TestLeaderProcessRequest(t *testing.T) {
+	// TODO: add test for processing request
 }

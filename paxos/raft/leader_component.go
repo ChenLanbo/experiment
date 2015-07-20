@@ -46,6 +46,8 @@ func (leader *Leader) ProcessOneRequest() {
 		reply.Term = proto.Uint64(leader.nodeMaster.store.CurrentTerm())
 
 		if leader.nodeMaster.store.CommitIndex() < *op.Request.AppendRequest.Term {
+			// I am not leader anymore
+			leader.nodeMaster.store.SetCurrentTerm(*op.Request.AppendRequest.Term)
 			leader.Revoke()
 		}
 
@@ -58,6 +60,8 @@ func (leader *Leader) ProcessOneRequest() {
 		reply.Term = proto.Uint64(leader.nodeMaster.store.CurrentTerm())
 
 		if leader.nodeMaster.store.CommitIndex() < *op.Request.AppendRequest.Term {
+			// I am not leader anymore
+			leader.nodeMaster.store.SetCurrentTerm(*op.Request.AppendRequest.Term)
 			leader.Revoke()
 		}
 
