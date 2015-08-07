@@ -22,7 +22,7 @@ func TestRaftServer(t *testing.T) {
 	}
 
 	s := grpc.NewServer()
-	pb.RegisterRaftServerServer(s, &RaftServer{})
+	pb.RegisterRaftServer(s, &RaftServerImpl{})
 	go func() {
 		s.Serve(l)
 	} ()
@@ -35,7 +35,7 @@ func TestRaftServer(t *testing.T) {
 	}
 	defer c.Close()
 
-	cli := pb.NewRaftServerClient(c)
+	cli := pb.NewRaftClient(c)
 
 	request := &pb.PutRequest{
 		Key:proto.String("abc"),

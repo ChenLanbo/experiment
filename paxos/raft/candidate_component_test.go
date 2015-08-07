@@ -1,93 +1,103 @@
 package raft
 import (
 	"testing"
-	"google.golang.org/grpc"
-	"golang.org/x/net/context"
 	pb "github.com/chenlanbo/experiment/paxos/protos"
-	"errors"
 	"github.com/golang/protobuf/proto"
-	"net"
-	"syscall"
-	"log"
+	"github.com/golang/mock/gomock"
+	"github.com/chenlanbo/experiment/paxos/raft/test"
 )
 
 type CandidateComponentTest struct {
+	mockCtrl *gomock.Controller
+	mockExchange *test.MockMessageExchange
+
+	peers []string
+	me int
+
 	nodeMaster *NodeMaster
 	candidate *Candidate
-
-	s1 *grpc.Server
-	s2 *grpc.Server
 }
 
-func (test *CandidateComponentTest) setUp() {
-	peers := []string{"localhost:30001", "localhost:30002", "localhost:30003"}
-	test.nodeMaster = NewNodeMaster(peers, 0)
-	test.candidate = NewCandidate(test.nodeMaster)
+func (tt *CandidateComponentTest) setUp(t *testing.T) {
+	tt.mockCtrl = gomock.NewController(t)
+	tt.mockExchange = test.NewMockMessageExchange(tt.mockCtrl)
 
-	l1, err1 := net.Listen("tcp", peers[1])
-	if err1 != nil {
-		log.Fatal("Failed to opend socket.")
-		syscall.Exit(1)
-	}
+	tt.peers = []string{"localhost:30001", "localhost:30002", "localhost:30003"}
+	tt.me = 0
 
-	test.s1 = grpc.NewServer()
-	pb.RegisterRaftServerServer(test.s1, &CandidateComponentTestRpcServer{})
-	go func() {
-		test.s1.Serve(l1)
-	} ()
-
-	l2, err2 := net.Listen("tcp", peers[2])
-	if err2 != nil {
-		log.Fatal("Failed to opend socket.")
-		syscall.Exit(1)
-	}
-
-	test.s2 = grpc.NewServer()
-	pb.RegisterRaftServerServer(test.s2, &CandidateComponentTestRpcServer{})
-	go func() {
-		test.s2.Serve(l2)
-	} ()
+	tt.nodeMaster = NewNodeMaster(tt.mockExchange, tt.peers, tt.me)
+	tt.candidate = NewCandidate(tt.nodeMaster)
 }
 
-func (test *CandidateComponentTest) tearDown() {
-	test.nodeMaster.Stop()
-	test.s1.Stop()
-	test.s2.Stop()
+func (tt *CandidateComponentTest) tearDown(t *testing.T) {
+	tt.nodeMaster.Stop()
+	tt.candidate = nil
+	tt.nodeMaster = nil
 
-	test.candidate = nil
-	test.nodeMaster = nil
+	tt.mockCtrl.Finish()
+	tt.mockExchange = nil
+	tt.mockCtrl = nil
 }
 
-type CandidateComponentTestRpcServer struct {}
+func TestVoteBothGranted(t *testing.T) {
+	tt := &CandidateComponentTest{}
+	tt.setUp(t)
+	defer tt.tearDown(t)
+	tt.nodeMaster.state = CANDIDATE
 
-func (s *CandidateComponentTestRpcServer) Vote(ctx context.Context, request *pb.VoteRequest) (*pb.VoteReply, error) {
-	reply := &pb.VoteReply{}
-	reply.Granted = proto.Bool(true)
-	reply.Term = proto.Uint64(0)
-	return reply, nil
-}
+	reply := &pb.VoteReply{
+		Granted:proto.Bool(true),
+		Term:proto.Uint64(0)}
+	tt.mockExchange.EXPECT().Vote(gomock.Any(), gomock.Any()).Return(reply, nil)
 
-func (s *CandidateComponentTestRpcServer) Append(ctx context.Context, request *pb.AppendRequest) (*pb.AppendReply, error) {
-	return nil, errors.New("Invalid operation")
-}
-
-func (s *CandidateComponentTestRpcServer) Put(ctx context.Context, request *pb.PutRequest) (*pb.PutReply, error) {
-	return nil, errors.New("Invalid operation")
-}
-
-func TestVoteSelfOnce(t *testing.T) {
-	test := &CandidateComponentTest{}
-	test.setUp()
-	defer test.tearDown()
-	test.nodeMaster.state = CANDIDATE
-
-	test.candidate.VoteSelfOnce()
-	if test.nodeMaster.state != LEADER {
+	tt.candidate.VoteSelfOnce()
+	if tt.nodeMaster.state != LEADER {
 		t.Fatal("Should have become a leader")
 		t.Fail()
 	}
 }
 
+func TestVoteOnlyOneGranted(t *testing.T) {
+	tt := &CandidateComponentTest{}
+	tt.setUp(t)
+	defer tt.tearDown(t)
+	tt.nodeMaster.state = CANDIDATE
+
+	reply1 := &pb.VoteReply{
+		Granted:proto.Bool(true),
+		Term:proto.Uint64(0)}
+	tt.mockExchange.EXPECT().Vote(tt.peers[2], gomock.Any()).Return(reply1, nil)
+
+	reply2 := &pb.VoteReply{
+		Granted:proto.Bool(false),
+		Term:proto.Uint64(1)}
+	tt.mockExchange.EXPECT().Vote(tt.peers[1], gomock.Any()).Return(reply2, nil)
+
+	tt.candidate.VoteSelfOnce()
+	if tt.nodeMaster.state != LEADER {
+		t.Fatal("Should have become a leader")
+		t.Fail()
+	}
+}
+
+func TestVoteHigherTermReturned(t *testing.T) {
+	tt := &CandidateComponentTest{}
+	tt.setUp(t)
+	defer tt.tearDown(t)
+	tt.nodeMaster.state = CANDIDATE
+
+	reply := &pb.VoteReply{
+		Granted:proto.Bool(false),
+		Term:proto.Uint64(2)}
+	tt.mockExchange.EXPECT().Vote(gomock.Any(), gomock.Any()).Return(reply, nil)
+
+	tt.candidate.VoteSelfOnce()
+	if tt.nodeMaster.state != FOLLOWER {
+		t.Fatal("Should have become a follower")
+		t.Fail()
+	}
+}
+
 func TestCandidateProcessRequest(t *testing.T) {
-	// TODO:
+	// TODO(lanbochen): fill this test
 }

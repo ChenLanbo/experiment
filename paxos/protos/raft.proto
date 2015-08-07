@@ -42,7 +42,7 @@ message PutReply {
     optional string leaderId = 2;
 }
 
-service RaftServer {
+service Raft {
 
     // Vote request
     rpc Vote(VoteRequest) returns (VoteReply) {}

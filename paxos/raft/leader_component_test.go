@@ -1,101 +1,81 @@
 package raft
 import (
 	"testing"
-	"golang.org/x/net/context"
 	pb "github.com/chenlanbo/experiment/paxos/protos"
-	"errors"
 	"github.com/golang/protobuf/proto"
-	"net"
-	"google.golang.org/grpc"
-	"syscall"
-	"log"
+	"github.com/golang/mock/gomock"
+	"github.com/chenlanbo/experiment/paxos/raft/test"
 )
 
 type LeaderComponentTest struct {
+	mockCtrl *gomock.Controller
+	mockExchange *test.MockMessageExchange
+
 	nodeMaster *NodeMaster
 	leader *Leader
 
-	s1 *grpc.Server
-	s2 *grpc.Server
+	peers []string
+	me int
 }
 
-func (test *LeaderComponentTest) setUp() {
-	peers := []string{"localhost:30001", "localhost:30002", "localhost:30003"}
-	test.nodeMaster = NewNodeMaster(peers, 0)
-	test.leader = NewLeader(test.nodeMaster)
+func (tt *LeaderComponentTest) setUp(t *testing.T) {
+	tt.mockCtrl = gomock.NewController(t)
+	tt.mockExchange = test.NewMockMessageExchange(tt.mockCtrl)
 
-	test.nodeMaster.store.IncrementCurrentTerm()
+	tt.peers = []string{"localhost:30001", "localhost:30002", "localhost:30003"}
+	tt.me = 0
 
-	// Setup rpc stub
-	replicator := test.leader.logReplicators[0]
-	l1, err1 := net.Listen("tcp", replicator.peer)
-	if err1 != nil {
-		log.Fatal("Failed to opend socket.")
-		syscall.Exit(1)
-	}
+	tt.nodeMaster = NewNodeMaster(tt.mockExchange, tt.peers, tt.me)
+	tt.leader = NewLeader(tt.nodeMaster)
 
-	test.s1 = grpc.NewServer()
-	pb.RegisterRaftServerServer(test.s1, &LeaderComponentTestRpcServer{})
-	go func() {
-		test.s1.Serve(l1)
-	} ()
-
-	replicator = test.leader.logReplicators[1]
-	l2, err2 := net.Listen("tcp", replicator.peer)
-	if err2 != nil {
-		log.Fatal("Failed to opend socket.")
-		syscall.Exit(1)
-	}
-
-	test.s2 = grpc.NewServer()
-	pb.RegisterRaftServerServer(test.s2, &LeaderComponentTestRpcServer{})
-	go func() {
-		test.s2.Serve(l2)
-	} ()
+	tt.nodeMaster.store.IncrementCurrentTerm()
 }
 
-func (test *LeaderComponentTest) tearDown() {
-	test.nodeMaster.Stop()
-	test.s1.Stop()
-	test.s2.Stop()
+func (tt *LeaderComponentTest) tearDown(t *testing.T) {
+	tt.nodeMaster.Stop()
+	tt.leader = nil
+	tt.nodeMaster = nil
 
-	test.leader = nil
-	test.nodeMaster = nil
+	tt.mockCtrl.Finish()
+	tt.mockExchange = nil
+	tt.mockCtrl = nil
 }
 
-type LeaderComponentTestRpcServer struct {}
+func TestLogReplicatorReplicateIndexNotAdvanced(t *testing.T) {
+	tt := &LeaderComponentTest{}
+	tt.setUp(t)
+	defer tt.tearDown(t)
 
-func (s *LeaderComponentTestRpcServer) Vote(ctx context.Context, request *pb.VoteRequest) (*pb.VoteReply, error) {
-	return nil, errors.New("Invalid operation")
-}
+	reply := &pb.AppendReply{
+		Success:proto.Bool(true),
+		Term:proto.Uint64(1)}
+	tt.mockExchange.EXPECT().Append(gomock.Any(), gomock.Any()).Return(reply, nil)
 
-func (s *LeaderComponentTestRpcServer) Append(ctx context.Context, request *pb.AppendRequest) (*pb.AppendReply, error) {
-	reply := &pb.AppendReply{}
-	reply.Success = proto.Bool(true)
-	reply.Term = proto.Uint64(1)
-	return reply, nil
-}
-
-func (s *LeaderComponentTestRpcServer) Put(ctx context.Context, request *pb.PutRequest) (*pb.PutReply, error) {
-	return nil, errors.New("Invalid operation")
-}
-
-func TestLogReplicator(t *testing.T) {
-	test := &LeaderComponentTest{}
-	test.setUp()
-	defer test.tearDown()
-
-	replicator1 := test.leader.logReplicators[0]
+	replicator1 := tt.leader.logReplicators[0]
 	replicator1.ReplicateOnce()
-	if replicator1.replicateIndex != test.nodeMaster.store.CommitIndex() {
+	if replicator1.replicateIndex != tt.nodeMaster.store.CommitIndex() {
 		t.Fatal("ReplicateIndex should not be advancecd", replicator1.replicateIndex)
 		t.Fail()
 	}
+}
 
+func TestLogReplicatorReplicateIndexAdvanced(t *testing.T) {
+	tt := &LeaderComponentTest{}
+	tt.setUp(t)
+	defer tt.tearDown(t)
+
+	replicator1 := tt.leader.logReplicators[0]
 	n := 8
+
+	reply := &pb.AppendReply{
+		Success:proto.Bool(true),
+		Term:proto.Uint64(1)}
+
 	fakeData := make([]byte, 0)
+
 	for i := 0; i < n; i++ {
-		test.nodeMaster.store.Write(fakeData)
+		tt.nodeMaster.store.Write(fakeData)
+		tt.mockExchange.EXPECT().Append(gomock.Any(), gomock.Any()).Return(reply, nil)
 	}
 
 	for i := 0; i < n; i++ {
@@ -108,39 +88,45 @@ func TestLogReplicator(t *testing.T) {
 }
 
 func TestLogCommitter(t *testing.T) {
-	test := &LeaderComponentTest{}
-	test.setUp()
-	defer test.tearDown()
+	tt := &LeaderComponentTest{}
+	tt.setUp(t)
+	defer tt.tearDown(t)
 
-	n := 8
+	reply := &pb.AppendReply{
+		Success:proto.Bool(true),
+		Term:proto.Uint64(1)}
 	fakeData := make([]byte, 0)
+	n := 8
+
 	for i := 0; i < n; i++ {
-		test.nodeMaster.store.Write(fakeData)
-		for _, replicator := range (test.leader.logReplicators) {
+		tt.nodeMaster.store.Write(fakeData)
+		for _, replicator := range (tt.leader.logReplicators) {
+			tt.mockExchange.EXPECT().Append(gomock.Any(), gomock.Any()).Return(reply, nil)
 			replicator.ReplicateOnce()
 		}
 	}
 
-	test.leader.logCommitter.CommitOnce()
-	commitIndex := test.leader.nodeMaster.store.CommitIndex()
+	tt.leader.logCommitter.CommitOnce()
+	commitIndex := tt.leader.nodeMaster.store.CommitIndex()
 	if commitIndex != uint64(n) {
 		t.Fatal("CommitIndex not advanced:", commitIndex, "expected:", n)
 		t.Fail()
 	}
 
 	n++
-	test.nodeMaster.store.Write(fakeData)
+	tt.nodeMaster.store.Write(fakeData)
 
-	test.leader.logCommitter.CommitOnce()
-	commitIndex = test.leader.nodeMaster.store.CommitIndex()
+	tt.leader.logCommitter.CommitOnce()
+	commitIndex = tt.leader.nodeMaster.store.CommitIndex()
 	if commitIndex == uint64(n) {
 		t.Fatal("CommitIndex should not be advanced:", commitIndex)
 		t.Fail()
 	}
 
-	test.leader.logReplicators[0].ReplicateOnce()
-	test.leader.logCommitter.CommitOnce()
-	commitIndex = test.leader.nodeMaster.store.CommitIndex()
+	tt.mockExchange.EXPECT().Append(gomock.Any(), gomock.Any()).Return(reply, nil)
+	tt.leader.logReplicators[0].ReplicateOnce()
+	tt.leader.logCommitter.CommitOnce()
+	commitIndex = tt.leader.nodeMaster.store.CommitIndex()
 	if commitIndex != uint64(n) {
 		t.Fatal("CommitIndex not advanced:", commitIndex, "expected:", n)
 		t.Fail()

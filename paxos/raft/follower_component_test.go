@@ -4,62 +4,74 @@ import (
 
 	pb "github.com/chenlanbo/experiment/paxos/protos"
 	"github.com/golang/protobuf/proto"
+	"github.com/golang/mock/gomock"
+	"github.com/chenlanbo/experiment/paxos/raft/test"
 )
 
-var (
-	nodeMaster *NodeMaster = nil
-	follower   *Follower = nil
+type FollowerComponentTest struct {
+	mockCtrl *gomock.Controller
+	mockExchange *test.MockMessageExchange
 
-	candidateId string
-	leaderId    string
-)
+	peers []string
+	me int
 
-func setUpFollower() {
-	peers := make([]string, 3)
-	peers[0], peers[1], peers[2] = "localhost:10001", "localhost:10002", "localhost:10003"
-	candidateId, leaderId = peers[1], peers[1]
-
-	nodeMaster = NewNodeMaster(peers, 0)
-	follower = NewFollower(nodeMaster)
+	nodeMaster *NodeMaster
+	follower   *Follower
 }
 
-func tearDownFollower() {
-	nodeMaster.Stop()
+func (tt *FollowerComponentTest) setUp(t *testing.T) {
+	tt.mockCtrl = gomock.NewController(t)
+	tt.mockExchange = test.NewMockMessageExchange(tt.mockCtrl)
 
-	follower = nil
-	nodeMaster = nil
+	tt.peers = []string{"localhost:10001", "localhost:10002", "localhost:10003"}
+	tt.me = 0
+
+	tt.nodeMaster = NewNodeMaster(tt.mockExchange, tt.peers, tt.me)
+	tt.follower = NewFollower(tt.nodeMaster)
+}
+
+func (tt *FollowerComponentTest) tearDown(t *testing.T) {
+	tt.nodeMaster.Stop()
+	tt.follower = nil
+	tt.nodeMaster = nil
+
+	tt.mockCtrl.Finish()
+	tt.mockExchange = nil
+	tt.mockCtrl = nil
 }
 
 func TestTimeoutWithNoRequests(t *testing.T) {
-	setUpFollower()
-	defer tearDownFollower()
+	tt := FollowerComponentTest{}
+	tt.setUp(t)
+	defer tt.tearDown(t)
 
-	follower.ProcessOneRequest()
+	tt.follower.ProcessOneRequest()
 
-	if nodeMaster.state != CANDIDATE {
-		t.Fatal("State is not CANDIDATE but", nodeMaster.state)
+	if tt.nodeMaster.state != CANDIDATE {
+		t.Fatal("State is not CANDIDATE but", tt.nodeMaster.state)
 		t.Fail()
 	}
 }
 
 func TestVote(t *testing.T) {
-	setUpFollower()
-	defer tearDownFollower()
+	tt := FollowerComponentTest{}
+	tt.setUp(t)
+	defer tt.tearDown(t)
 
 	voteRequest1 := &pb.VoteRequest{
 		Term:proto.Uint64(1),
-		CandidateId:proto.String(candidateId),
+		CandidateId:proto.String(tt.peers[1]),
 		LastLogTerm:proto.Uint64(0),
 		LastLogIndex:proto.Uint64(0)}
 
 	op := NewRaftOperation(NewRaftRequest(voteRequest1, nil))
-	nodeMaster.OpsQueue.Push(op)
+	tt.nodeMaster.OpsQueue.Push(op)
 
-	follower.ProcessOneRequest()
-	if nodeMaster.state != FOLLOWER {
+	tt.follower.ProcessOneRequest()
+	if tt.nodeMaster.state != FOLLOWER {
 		t.Fail()
 	}
-	if nodeMaster.store.CurrentTerm() != 1 {
+	if tt.nodeMaster.store.CurrentTerm() != 1 {
 		t.Fail()
 	}
 
@@ -77,15 +89,15 @@ func TestVote(t *testing.T) {
 	// Another candidate send vote in the same term
 	voteRequest2 := &pb.VoteRequest{
 		Term:proto.Uint64(1),
-		CandidateId:proto.String("localhost:10003"),
+		CandidateId:proto.String(tt.peers[2]),
 		LastLogTerm:proto.Uint64(0),
 		LastLogIndex:proto.Uint64(0)}
 
 	op = NewRaftOperation(NewRaftRequest(voteRequest2, nil))
-	nodeMaster.OpsQueue.Push(op)
+	tt.nodeMaster.OpsQueue.Push(op)
 
-	follower.ProcessOneRequest()
-	if nodeMaster.state != FOLLOWER {
+	tt.follower.ProcessOneRequest()
+	if tt.nodeMaster.state != FOLLOWER {
 		t.Fail()
 	}
 
@@ -102,14 +114,13 @@ func TestVote(t *testing.T) {
 }
 
 func TestAppend(t *testing.T) {
-	setUpFollower()
-	defer tearDownFollower()
-
-	leaderId := "localhost:10002"
+	tt := FollowerComponentTest{}
+	tt.setUp(t)
+	defer tt.tearDown(t)
 
 	appendRequest := &pb.AppendRequest{
 		Term:proto.Uint64(1),
-		LeaderId:proto.String(leaderId),
+		LeaderId:proto.String(tt.peers[1]),
 		PrevLogIndex:proto.Uint64(0),
 		PrevLogTerm:proto.Uint64(0),
 		CommitIndex:proto.Uint64(0),
@@ -118,14 +129,14 @@ func TestAppend(t *testing.T) {
 			&pb.Log{Term:proto.Uint64(1), LogId:proto.Uint64(2)}}}
 
 	op := NewRaftOperation(NewRaftRequest(nil, appendRequest))
-	nodeMaster.OpsQueue.Push(op)
+	tt.nodeMaster.OpsQueue.Push(op)
 
-	follower.ProcessOneRequest()
-	if nodeMaster.store.CurrentTerm() != 1 {
+	tt.follower.ProcessOneRequest()
+	if tt.nodeMaster.store.CurrentTerm() != 1 {
 		t.Fatal("Follower's term not advanced")
 		t.Fail()
 	}
-	if nodeMaster.store.LatestIndex() != 2 {
+	if tt.nodeMaster.store.LatestIndex() != 2 {
 		t.Fatal("Follower's store rejected new logs")
 		t.Fail()
 	}
@@ -142,5 +153,5 @@ func TestAppend(t *testing.T) {
 }
 
 func TestVoteAndAppend(t *testing.T) {
-
+	// TODO(lanbochen): fill this test
 }

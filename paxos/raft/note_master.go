@@ -1,6 +1,7 @@
 package raft
 import (
 	"github.com/chenlanbo/experiment/paxos/raft/store"
+	"github.com/chenlanbo/experiment/paxos/raft/rpc"
 )
 
 type NodeState int
@@ -13,6 +14,7 @@ const (
 type NodeMaster struct {
 
 	OpsQueue *OperationQueue
+	Exchange rpc.MessageExchange
 
 	state NodeState
 	votedLeader string
@@ -69,10 +71,11 @@ func (NodeMaster *NodeMaster) runCandidate() {
 
 }
 
-func NewNodeMaster(peers []string, me int) (*NodeMaster) {
+func NewNodeMaster(exchange rpc.MessageExchange, peers []string, me int) (*NodeMaster) {
 	nodeMaster := &NodeMaster{}
 
 	nodeMaster.OpsQueue = NewOperationQueue()
+	nodeMaster.Exchange = exchange
 	nodeMaster.state = FOLLOWER
 	nodeMaster.store = store.NewStore()
 	nodeMaster.votedLeader = ""

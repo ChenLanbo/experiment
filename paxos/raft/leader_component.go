@@ -139,7 +139,7 @@ func (replicator *LogReplicator) ReplicateOnce() {
 		CommitIndex:proto.Uint64(store.CommitIndex()),
 		Logs:logsToReplicate}
 
-	reply, err := SendAppend(replicator.peer, request)
+	reply, err := replicator.parent.nodeMaster.Exchange.Append(replicator.peer, request)
 	if err != nil {
 		log.Fatal("Failed to replicate logs to", replicator.peer)
 	} else {

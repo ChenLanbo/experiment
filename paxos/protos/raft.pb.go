@@ -252,9 +252,9 @@ func (m *PutReply) GetLeaderId() string {
 	return ""
 }
 
-// Client API for RaftServer service
+// Client API for Raft service
 
-type RaftServerClient interface {
+type RaftClient interface {
 	// Vote request
 	Vote(ctx context.Context, in *VoteRequest, opts ...grpc.CallOption) (*VoteReply, error)
 	// Append request
@@ -263,44 +263,44 @@ type RaftServerClient interface {
 	Put(ctx context.Context, in *PutRequest, opts ...grpc.CallOption) (*PutReply, error)
 }
 
-type raftServerClient struct {
+type raftClient struct {
 	cc *grpc.ClientConn
 }
 
-func NewRaftServerClient(cc *grpc.ClientConn) RaftServerClient {
-	return &raftServerClient{cc}
+func NewRaftClient(cc *grpc.ClientConn) RaftClient {
+	return &raftClient{cc}
 }
 
-func (c *raftServerClient) Vote(ctx context.Context, in *VoteRequest, opts ...grpc.CallOption) (*VoteReply, error) {
+func (c *raftClient) Vote(ctx context.Context, in *VoteRequest, opts ...grpc.CallOption) (*VoteReply, error) {
 	out := new(VoteReply)
-	err := grpc.Invoke(ctx, "/protos.RaftServer/Vote", in, out, c.cc, opts...)
+	err := grpc.Invoke(ctx, "/protos.Raft/Vote", in, out, c.cc, opts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *raftServerClient) Append(ctx context.Context, in *AppendRequest, opts ...grpc.CallOption) (*AppendReply, error) {
+func (c *raftClient) Append(ctx context.Context, in *AppendRequest, opts ...grpc.CallOption) (*AppendReply, error) {
 	out := new(AppendReply)
-	err := grpc.Invoke(ctx, "/protos.RaftServer/Append", in, out, c.cc, opts...)
+	err := grpc.Invoke(ctx, "/protos.Raft/Append", in, out, c.cc, opts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *raftServerClient) Put(ctx context.Context, in *PutRequest, opts ...grpc.CallOption) (*PutReply, error) {
+func (c *raftClient) Put(ctx context.Context, in *PutRequest, opts ...grpc.CallOption) (*PutReply, error) {
 	out := new(PutReply)
-	err := grpc.Invoke(ctx, "/protos.RaftServer/Put", in, out, c.cc, opts...)
+	err := grpc.Invoke(ctx, "/protos.Raft/Put", in, out, c.cc, opts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-// Server API for RaftServer service
+// Server API for Raft service
 
-type RaftServerServer interface {
+type RaftServer interface {
 	// Vote request
 	Vote(context.Context, *VoteRequest) (*VoteReply, error)
 	// Append request
@@ -309,61 +309,61 @@ type RaftServerServer interface {
 	Put(context.Context, *PutRequest) (*PutReply, error)
 }
 
-func RegisterRaftServerServer(s *grpc.Server, srv RaftServerServer) {
-	s.RegisterService(&_RaftServer_serviceDesc, srv)
+func RegisterRaftServer(s *grpc.Server, srv RaftServer) {
+	s.RegisterService(&_Raft_serviceDesc, srv)
 }
 
-func _RaftServer_Vote_Handler(srv interface{}, ctx context.Context, codec grpc.Codec, buf []byte) (interface{}, error) {
+func _Raft_Vote_Handler(srv interface{}, ctx context.Context, codec grpc.Codec, buf []byte) (interface{}, error) {
 	in := new(VoteRequest)
 	if err := codec.Unmarshal(buf, in); err != nil {
 		return nil, err
 	}
-	out, err := srv.(RaftServerServer).Vote(ctx, in)
+	out, err := srv.(RaftServer).Vote(ctx, in)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func _RaftServer_Append_Handler(srv interface{}, ctx context.Context, codec grpc.Codec, buf []byte) (interface{}, error) {
+func _Raft_Append_Handler(srv interface{}, ctx context.Context, codec grpc.Codec, buf []byte) (interface{}, error) {
 	in := new(AppendRequest)
 	if err := codec.Unmarshal(buf, in); err != nil {
 		return nil, err
 	}
-	out, err := srv.(RaftServerServer).Append(ctx, in)
+	out, err := srv.(RaftServer).Append(ctx, in)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func _RaftServer_Put_Handler(srv interface{}, ctx context.Context, codec grpc.Codec, buf []byte) (interface{}, error) {
+func _Raft_Put_Handler(srv interface{}, ctx context.Context, codec grpc.Codec, buf []byte) (interface{}, error) {
 	in := new(PutRequest)
 	if err := codec.Unmarshal(buf, in); err != nil {
 		return nil, err
 	}
-	out, err := srv.(RaftServerServer).Put(ctx, in)
+	out, err := srv.(RaftServer).Put(ctx, in)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-var _RaftServer_serviceDesc = grpc.ServiceDesc{
-	ServiceName: "protos.RaftServer",
-	HandlerType: (*RaftServerServer)(nil),
+var _Raft_serviceDesc = grpc.ServiceDesc{
+	ServiceName: "protos.Raft",
+	HandlerType: (*RaftServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
 			MethodName: "Vote",
-			Handler:    _RaftServer_Vote_Handler,
+			Handler:    _Raft_Vote_Handler,
 		},
 		{
 			MethodName: "Append",
-			Handler:    _RaftServer_Append_Handler,
+			Handler:    _Raft_Append_Handler,
 		},
 		{
 			MethodName: "Put",
-			Handler:    _RaftServer_Put_Handler,
+			Handler:    _Raft_Put_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{},

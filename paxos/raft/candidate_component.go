@@ -15,7 +15,6 @@ var (
 	sleepTimeout = flag.Int("raft_candidate_sleep_timeout", 200, "")
 )
 
-//
 type Candidate struct {
 	mu sync.Mutex
 	nodeMaster *NodeMaster
@@ -106,12 +105,13 @@ func (candidate *Candidate) VoteSelfOnce() {
 		}
 
 		l := candidate.nodeMaster.store.Read(candidate.nodeMaster.store.LatestIndex())
-		request := &pb.VoteRequest{}
-		request.Term = proto.Uint64(candidate.nodeMaster.store.CurrentTerm())
-		request.CandidateId = proto.String(candidate.nodeMaster.MyEndpoint())
-		request.LastLogIndex = proto.Uint64(*l.LogId)
-		request.LastLogTerm = proto.Uint64(*l.Term)
-		reply, err := SendVote(peer, request)
+		request := &pb.VoteRequest{
+			Term:proto.Uint64(candidate.nodeMaster.store.CurrentTerm()),
+			CandidateId:proto.String(candidate.nodeMaster.MyEndpoint()),
+			LastLogIndex:proto.Uint64(*l.LogId),
+			LastLogTerm:proto.Uint64(*l.Term)}
+
+		reply, err := candidate.nodeMaster.Exchange.Vote(peer, request)
 		if err != nil {
 			log.Fatal(err, "\n")
 			continue
