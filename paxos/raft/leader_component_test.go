@@ -28,6 +28,7 @@ func (tt *LeaderComponentTest) setUp(t *testing.T) {
 	tt.nodeMaster = NewNodeMaster(tt.mockExchange, tt.peers, tt.me)
 	tt.leader = NewLeader(tt.nodeMaster)
 
+	tt.nodeMaster.state = LEADER
 	tt.nodeMaster.store.IncrementCurrentTerm()
 }
 
@@ -64,7 +65,7 @@ func TestLogReplicatorReplicateIndexAdvanced(t *testing.T) {
 	tt.setUp(t)
 	defer tt.tearDown(t)
 
-	replicator1 := tt.leader.logReplicators[0]
+	replicator := tt.leader.logReplicators[0]
 	n := 8
 
 	reply := &pb.AppendReply{
@@ -79,10 +80,58 @@ func TestLogReplicatorReplicateIndexAdvanced(t *testing.T) {
 	}
 
 	for i := 0; i < n; i++ {
-		replicator1.ReplicateOnce()
+		replicator.ReplicateOnce()
 	}
-	if replicator1.replicateIndex != uint64(n) {
-		t.Log("ReplicateIndex:", replicator1.replicateIndex, "\n")
+	if replicator.replicateIndex != uint64(n) {
+		t.Log("ReplicateIndex:", replicator.replicateIndex, "\n")
+		t.Fail()
+	}
+}
+
+func TestLogReplicatorReplicateFromPreviousLog(t *testing.T) {
+	tt := &LeaderComponentTest{}
+	tt.setUp(t)
+	defer tt.tearDown(t)
+
+	replicator := tt.leader.logReplicators[0]
+
+	n := 8
+	fakeData := make([]byte, 0)
+	for i := 0; i < n; i++ {
+		tt.nodeMaster.store.Write(fakeData)
+	}
+	tt.nodeMaster.store.SetCommitIndex(uint64(n))
+	replicator.replicateIndex = uint64(n)
+
+	reply1 := &pb.AppendReply{
+		Success:proto.Bool(false),
+		Term:proto.Uint64(tt.nodeMaster.store.CurrentTerm())}
+	tt.mockExchange.EXPECT().Append(gomock.Any(), gomock.Any()).Return(reply1, nil)
+	replicator.ReplicateOnce()
+
+	// ReplicateIndex moves backward
+	t.Log(replicator.replicateIndex)
+	if replicator.replicateIndex != uint64(n - 1) {
+		t.Fatal("ReplicateIndex should move backward")
+		t.Fail()
+	}
+
+	tt.nodeMaster.store.IncrementCurrentTerm()
+	tt.nodeMaster.store.Write(fakeData)
+	n++
+
+	reply2 := &pb.AppendReply{
+		Success:proto.Bool(true),
+		Term:proto.Uint64(tt.nodeMaster.store.CurrentTerm())}
+	tt.mockExchange.EXPECT().Append(gomock.Any(), gomock.Any()).Return(reply2, nil)
+	tt.mockExchange.EXPECT().Append(gomock.Any(), gomock.Any()).Return(reply2, nil)
+	replicator.ReplicateOnce()
+	replicator.ReplicateOnce()
+
+	// ReplicateIndex moves forward
+	t.Log(replicator.replicateIndex)
+	if replicator.replicateIndex != uint64(n) {
+		t.Fatal("ReplicateIndex should move forward")
 		t.Fail()
 	}
 }
