@@ -152,7 +152,9 @@ func (replicator *LogReplicator) ReplicateOnce() {
 			if *reply.Term > store.CurrentTerm() {
 				// return to follower state
 			} else {
-				replicator.replicateIndex--
+				if replicator.replicateIndex > 0 {
+					replicator.replicateIndex--
+				}
 				replicator.prevLog = store.Read(replicator.replicateIndex)
 			}
 		}

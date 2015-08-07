@@ -46,7 +46,7 @@ func (follower *Follower) ProcessOneRequest() {
 
 			if !follower.nodeMaster.store.Match(*op.Request.AppendRequest.PrevLogIndex,
 											    *op.Request.AppendRequest.PrevLogTerm) {
-				log.Fatal("Previous log index and term from leader doesn't match the follower's log")
+				log.Println("Previous log index and term from leader doesn't match the follower's log")
 				reply.Success = proto.Bool(false)
 			} else {
 				tempLogs := make([]pb.Log, len(op.Request.AppendRequest.Logs))

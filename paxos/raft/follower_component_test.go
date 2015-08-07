@@ -152,6 +152,67 @@ func TestAppend(t *testing.T) {
 	}
 }
 
+func TestReplicateFromPreviousLog(t *testing.T) {
+	tt := FollowerComponentTest{}
+	tt.setUp(t)
+	defer tt.tearDown(t)
+
+	fakeData := make([]byte, 0)
+	n := 4
+	for i := 0; i < n; i++ {
+		tt.nodeMaster.store.IncrementCurrentTerm()
+		tt.nodeMaster.store.Write(fakeData)
+	}
+
+	newTerm := tt.nodeMaster.store.CurrentTerm() + 1
+	appendRequest1 := &pb.AppendRequest{
+		Term:proto.Uint64(newTerm),
+		LeaderId:proto.String(tt.peers[1]),
+		PrevLogIndex:proto.Uint64(4),
+		PrevLogTerm:proto.Uint64(newTerm - 2),
+		CommitIndex:proto.Uint64(0),
+		Logs:[]*pb.Log{
+			&pb.Log{Term:proto.Uint64(newTerm), LogId:proto.Uint64(uint64(n + 1))},
+			&pb.Log{Term:proto.Uint64(newTerm), LogId:proto.Uint64(uint64(n + 2))}}}
+
+	op1 := NewRaftOperation(NewRaftRequest(nil, appendRequest1))
+	tt.nodeMaster.OpsQueue.Push(op1)
+
+	// PrevLogIndex and PrevLogTerm do not match
+	tt.follower.ProcessOneRequest()
+	reply := <- op1.Callback
+	if *reply.AppendReply.Success {
+		t.Fail()
+	}
+
+	// Use earlier PrevLogIndex and PrevLogTerm
+	appendRequest2 := &pb.AppendRequest{
+		Term:proto.Uint64(newTerm),
+		LeaderId:proto.String(tt.peers[1]),
+		PrevLogIndex:proto.Uint64(3),
+		PrevLogTerm:proto.Uint64(newTerm - 2),
+		CommitIndex:proto.Uint64(0),
+		Logs:[]*pb.Log{
+			&pb.Log{Term:proto.Uint64(newTerm), LogId:proto.Uint64(uint64(n))},
+			&pb.Log{Term:proto.Uint64(newTerm), LogId:proto.Uint64(uint64(n + 1))}}}
+
+	op2 := NewRaftOperation(NewRaftRequest(nil, appendRequest2))
+	tt.nodeMaster.OpsQueue.Push(op2)
+
+	tt.follower.ProcessOneRequest()
+	reply = <- op2.Callback
+	if !*reply.AppendReply.Success {
+		t.Fail()
+	}
+	if tt.nodeMaster.store.LatestIndex() != uint64(n + 1) {
+		t.Fail()
+	}
+	l := tt.nodeMaster.store.Read(uint64(n))
+	if *l.Term != newTerm || *l.LogId != uint64(n) {
+		t.Fail()
+	}
+}
+
 func TestVoteAndAppend(t *testing.T) {
 	// TODO(lanbochen): fill this test
 }
