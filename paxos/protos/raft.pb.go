@@ -180,9 +180,10 @@ func (m *AppendReply) GetTerm() uint64 {
 }
 
 type Log struct {
-	Term             *uint64 `protobuf:"varint,1,req,name=term" json:"term,omitempty"`
-	LogId            *uint64 `protobuf:"varint,2,req,name=logId" json:"logId,omitempty"`
-	XXX_unrecognized []byte  `json:"-"`
+	Term             *uint64   `protobuf:"varint,1,req,name=term" json:"term,omitempty"`
+	LogId            *uint64   `protobuf:"varint,2,req,name=logId" json:"logId,omitempty"`
+	Data             *Log_Data `protobuf:"bytes,3,opt,name=data" json:"data,omitempty"`
+	XXX_unrecognized []byte    `json:"-"`
 }
 
 func (m *Log) Reset()         { *m = Log{} }
@@ -201,6 +202,37 @@ func (m *Log) GetLogId() uint64 {
 		return *m.LogId
 	}
 	return 0
+}
+
+func (m *Log) GetData() *Log_Data {
+	if m != nil {
+		return m.Data
+	}
+	return nil
+}
+
+type Log_Data struct {
+	Key              *string `protobuf:"bytes,1,req,name=key" json:"key,omitempty"`
+	Value            []byte  `protobuf:"bytes,2,req,name=value" json:"value,omitempty"`
+	XXX_unrecognized []byte  `json:"-"`
+}
+
+func (m *Log_Data) Reset()         { *m = Log_Data{} }
+func (m *Log_Data) String() string { return proto.CompactTextString(m) }
+func (*Log_Data) ProtoMessage()    {}
+
+func (m *Log_Data) GetKey() string {
+	if m != nil && m.Key != nil {
+		return *m.Key
+	}
+	return ""
+}
+
+func (m *Log_Data) GetValue() []byte {
+	if m != nil {
+		return m.Value
+	}
+	return nil
 }
 
 // Public APIs

@@ -177,6 +177,21 @@ func (s *Store) Write(data []byte) {
 	s.logs = append(s.logs, newLog)
 }
 
+func (s *Store) WriteKeyValue(key string, value []byte) uint64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	newLog := pb.Log{}
+	newLog.LogId = proto.Uint64(*s.logs[len(s.logs) - 1].LogId + 1)
+	newLog.Term = proto.Uint64(s.currentTerm)
+	newLog.Data = &pb.Log_Data{
+		Key:proto.String(key),
+		Value:value}
+
+	s.logs = append(s.logs, newLog)
+	return *newLog.LogId
+}
+
 func NewStore() (*Store) {
 	s := &Store{}
 

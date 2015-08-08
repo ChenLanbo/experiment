@@ -182,6 +182,35 @@ func TestLogCommitter(t *testing.T) {
 	}
 }
 
-func TestLeaderProcessRequest(t *testing.T) {
-	// TODO: add test for processing request
+func TestLeaderProcessPutRequest(t *testing.T) {
+	tt := &LeaderComponentTest{}
+	tt.setUp(t)
+	defer tt.tearDown(t)
+
+	appendReply := &pb.AppendReply{
+		Success:proto.Bool(true),
+		Term:proto.Uint64(tt.nodeMaster.store.CurrentTerm())}
+	tt.mockExchange.EXPECT().Append(gomock.Any(), gomock.Any()).Return(appendReply, nil)
+
+	putRequest := &pb.PutRequest{
+		Key:proto.String("abc"),
+		Value:[]byte("abc")}
+	op := NewRaftOperation(NewRaftRequest(nil, nil, putRequest))
+	tt.nodeMaster.OpsQueue.Push(op)
+
+	tt.leader.ProcessOneRequest()
+	if tt.nodeMaster.store.LatestIndex() == 0 {
+		t.Error("Should have new log in the store")
+	}
+
+	tt.leader.logReplicators[0].ReplicateOnce()
+	tt.leader.logCommitter.CommitOnce()
+
+	reply := <- op.Callback
+	if reply.PutReply == nil {
+		t.Error("PutReply is null")
+	}
+	if !*reply.PutReply.Success {
+		t.Error("PutReply should success")
+	}
 }

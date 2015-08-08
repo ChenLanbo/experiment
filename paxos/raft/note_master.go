@@ -20,6 +20,7 @@ type NodeMaster struct {
 	votedLeader string
 
 	store *store.Store
+	inflightRequests map[uint64]*RaftOperation
 
 	peers []string
 	me    int
@@ -75,6 +76,7 @@ func NewNodeMaster(exchange rpc.MessageExchange, peers []string, me int) (*NodeM
 	nodeMaster := &NodeMaster{}
 
 	nodeMaster.OpsQueue = NewOperationQueue()
+	nodeMaster.inflightRequests = make(map[uint64]*RaftOperation)
 	nodeMaster.Exchange = exchange
 	nodeMaster.state = FOLLOWER
 	nodeMaster.store = store.NewStore()

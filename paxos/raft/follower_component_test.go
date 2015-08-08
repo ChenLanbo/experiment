@@ -64,7 +64,7 @@ func TestVote(t *testing.T) {
 		LastLogTerm:proto.Uint64(0),
 		LastLogIndex:proto.Uint64(0)}
 
-	op := NewRaftOperation(NewRaftRequest(voteRequest1, nil))
+	op := NewRaftOperation(NewRaftRequest(voteRequest1, nil, nil))
 	tt.nodeMaster.OpsQueue.Push(op)
 
 	tt.follower.ProcessOneRequest()
@@ -93,7 +93,7 @@ func TestVote(t *testing.T) {
 		LastLogTerm:proto.Uint64(0),
 		LastLogIndex:proto.Uint64(0)}
 
-	op = NewRaftOperation(NewRaftRequest(voteRequest2, nil))
+	op = NewRaftOperation(NewRaftRequest(voteRequest2, nil, nil))
 	tt.nodeMaster.OpsQueue.Push(op)
 
 	tt.follower.ProcessOneRequest()
@@ -128,7 +128,7 @@ func TestAppend(t *testing.T) {
 			&pb.Log{Term:proto.Uint64(1), LogId:proto.Uint64(1)},
 			&pb.Log{Term:proto.Uint64(1), LogId:proto.Uint64(2)}}}
 
-	op := NewRaftOperation(NewRaftRequest(nil, appendRequest))
+	op := NewRaftOperation(NewRaftRequest(nil, appendRequest, nil))
 	tt.nodeMaster.OpsQueue.Push(op)
 
 	tt.follower.ProcessOneRequest()
@@ -164,6 +164,7 @@ func TestReplicateFromPreviousLog(t *testing.T) {
 		tt.nodeMaster.store.Write(fakeData)
 	}
 
+	// PrevLogIndex and PrevLogTerm do not match
 	newTerm := tt.nodeMaster.store.CurrentTerm() + 1
 	appendRequest1 := &pb.AppendRequest{
 		Term:proto.Uint64(newTerm),
@@ -175,10 +176,9 @@ func TestReplicateFromPreviousLog(t *testing.T) {
 			&pb.Log{Term:proto.Uint64(newTerm), LogId:proto.Uint64(uint64(n + 1))},
 			&pb.Log{Term:proto.Uint64(newTerm), LogId:proto.Uint64(uint64(n + 2))}}}
 
-	op1 := NewRaftOperation(NewRaftRequest(nil, appendRequest1))
+	op1 := NewRaftOperation(NewRaftRequest(nil, appendRequest1, nil))
 	tt.nodeMaster.OpsQueue.Push(op1)
 
-	// PrevLogIndex and PrevLogTerm do not match
 	tt.follower.ProcessOneRequest()
 	reply := <- op1.Callback
 	if *reply.AppendReply.Success {
@@ -196,7 +196,7 @@ func TestReplicateFromPreviousLog(t *testing.T) {
 			&pb.Log{Term:proto.Uint64(newTerm), LogId:proto.Uint64(uint64(n))},
 			&pb.Log{Term:proto.Uint64(newTerm), LogId:proto.Uint64(uint64(n + 1))}}}
 
-	op2 := NewRaftOperation(NewRaftRequest(nil, appendRequest2))
+	op2 := NewRaftOperation(NewRaftRequest(nil, appendRequest2, nil))
 	tt.nodeMaster.OpsQueue.Push(op2)
 
 	tt.follower.ProcessOneRequest()

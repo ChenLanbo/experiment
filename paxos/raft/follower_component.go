@@ -43,6 +43,7 @@ func (follower *Follower) ProcessOneRequest() {
 			reply.Success = proto.Bool(false)
 		} else {
 			follower.nodeMaster.store.SetCurrentTerm(*op.Request.AppendRequest.Term)
+			follower.nodeMaster.votedLeader = *op.Request.AppendRequest.LeaderId
 
 			if !follower.nodeMaster.store.Match(*op.Request.AppendRequest.PrevLogIndex,
 											    *op.Request.AppendRequest.PrevLogTerm) {
@@ -64,10 +65,9 @@ func (follower *Follower) ProcessOneRequest() {
 		}
 
 		reply.Term = proto.Uint64(follower.nodeMaster.store.CurrentTerm())
-		op.Callback <- *NewRaftReply(nil, reply)
-	}
+		op.Callback <- *NewRaftReply(nil, reply, nil)
 
-	if op.Request.VoteRequest != nil {
+	} else if op.Request.VoteRequest != nil {
 		reply := &pb.VoteReply{}
 
 		if follower.nodeMaster.store.CurrentTerm() > *op.Request.VoteRequest.Term {
@@ -98,7 +98,13 @@ func (follower *Follower) ProcessOneRequest() {
 		}
 
 		reply.Term = proto.Uint64(follower.nodeMaster.store.CurrentTerm())
-		op.Callback <- *NewRaftReply(reply, nil)
+		op.Callback <- *NewRaftReply(reply, nil, nil)
+
+	} else if op.Request.PutRequest != nil {
+		reply := &pb.PutReply{
+			Success:proto.Bool(false),
+			LeaderId:proto.String(follower.nodeMaster.votedLeader)}
+		op.Callback <- *NewRaftReply(nil, nil, reply)
 	}
 }
 

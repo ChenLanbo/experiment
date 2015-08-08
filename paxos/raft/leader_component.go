@@ -41,6 +41,8 @@ func (leader *Leader) ProcessOneRequest() {
 	}
 
 	if op.Request.AppendRequest != nil {
+		// Process append request
+
 		reply := &pb.AppendReply{}
 		reply.Success = proto.Bool(false)
 		reply.Term = proto.Uint64(leader.nodeMaster.store.CurrentTerm())
@@ -51,10 +53,11 @@ func (leader *Leader) ProcessOneRequest() {
 			leader.Revoke()
 		}
 
-		op.Callback <- *NewRaftReply(nil, reply)
-	}
+		op.Callback <- *NewRaftReply(nil, reply, nil)
 
-	if op.Request.VoteRequest != nil {
+	} else if op.Request.VoteRequest != nil {
+		// Process vote request
+
 		reply := &pb.VoteReply{}
 		reply.Granted = proto.Bool(false)
 		reply.Term = proto.Uint64(leader.nodeMaster.store.CurrentTerm())
@@ -65,7 +68,16 @@ func (leader *Leader) ProcessOneRequest() {
 			leader.Revoke()
 		}
 
-		op.Callback <- *NewRaftReply(reply, nil)
+		op.Callback <- *NewRaftReply(reply, nil, nil)
+
+	} else if op.Request.PutRequest != nil {
+		// Process put request
+
+		// Write data to store and put into inflight requests.
+		// Once commit index advanced by committer, ack the request.
+		logId := leader.nodeMaster.store.WriteKeyValue(
+			*op.Request.PutRequest.Key, op.Request.PutRequest.Value)
+		leader.nodeMaster.inflightRequests[logId] = op
 	}
 }
 
@@ -208,6 +220,16 @@ func (committer *LogCommitter) CommitOnce() {
 		committer.leader.nodeMaster.store.SetCommitIndex(arr[len(arr) / 2])
 	} else {
 		<- time.After(time.Millisecond * 10)
+	}
+
+	// Ack inflight put requests
+	reply := &pb.PutReply{Success:proto.Bool(true)}
+	commitIndex := committer.leader.nodeMaster.store.CommitIndex()
+	for logId, op := range committer.leader.nodeMaster.inflightRequests {
+		if logId <= commitIndex {
+			op.Callback <- *NewRaftReply(nil, nil, reply)
+		}
+		delete(committer.leader.nodeMaster.inflightRequests, logId)
 	}
 }
 

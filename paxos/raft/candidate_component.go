@@ -52,10 +52,9 @@ func (candidate *Candidate) ProcessOneRequest() {
 		reply.Success = proto.Bool(false)
 		reply.Term = proto.Uint64(candidate.nodeMaster.store.CurrentTerm())
 
-		op.Callback <- *NewRaftReply(nil, reply)
-	}
+		op.Callback <- *NewRaftReply(nil, reply, nil)
 
-	if op.Request.VoteRequest != nil {
+	} else if op.Request.VoteRequest != nil {
 		reply := &pb.VoteReply{}
 
 		if candidate.nodeMaster.store.CurrentTerm() >= *op.Request.VoteRequest.Term {
@@ -70,7 +69,11 @@ func (candidate *Candidate) ProcessOneRequest() {
 			reply.Granted = proto.Bool(false)
 			reply.Term = proto.Uint64(candidate.nodeMaster.store.CurrentTerm())
 		}
-		op.Callback <- *NewRaftReply(reply, nil)
+		op.Callback <- *NewRaftReply(reply, nil, nil)
+
+	} else if op.Request.PutRequest != nil {
+		reply := &pb.PutReply{Success:proto.Bool(false)}
+		op.Callback <- *NewRaftReply(nil, nil, reply)
 	}
 }
 
@@ -113,7 +116,7 @@ func (candidate *Candidate) VoteSelfOnce() {
 
 		reply, err := candidate.nodeMaster.Exchange.Vote(peer, request)
 		if err != nil {
-			log.Fatal(err, "\n")
+			log.Println(err, "\n")
 			continue
 		}
 
