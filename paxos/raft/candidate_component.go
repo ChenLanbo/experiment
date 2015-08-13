@@ -9,6 +9,7 @@ import (
 	"github.com/golang/protobuf/proto"
 	"flag"
 	"log"
+	"sync/atomic"
 )
 
 var (
@@ -18,141 +19,217 @@ var (
 type Candidate struct {
 	mu sync.Mutex
 	nodeMaster *NodeMaster
+
+	newTermChan chan uint64
+	votedChan chan bool
 }
 
 func (candidate *Candidate) Run() {
-	candidate.VoteSelf()
-	candidate.ProcessRequest()
-}
 
-func (candidate *Candidate) ProcessRequest() {
-	go func() {
-		for candidate.isCandidate() {
-			candidate.ProcessOneRequest()
-		}
-	} ()
-}
-
-func (candidate *Candidate) ProcessOneRequest() {
-	candidate.mu.Lock()
-	defer candidate.mu.Unlock()
-
-	op := candidate.nodeMaster.OpsQueue.Pull(time.Millisecond * time.Duration(*queuePullTimeout))
-
-	if op.Request.AppendRequest != nil {
-		reply := &pb.AppendReply{}
-
-		if candidate.nodeMaster.store.CurrentTerm() <= *op.Request.AppendRequest.Term {
-			// Append from the new leader
-			candidate.nodeMaster.store.SetCurrentTerm(*op.Request.AppendRequest.Term)
-			candidate.nodeMaster.votedLeader = "" // should be empty?
-			candidate.nodeMaster.state = FOLLOWER
-		}
-
-		reply.Success = proto.Bool(false)
-		reply.Term = proto.Uint64(candidate.nodeMaster.store.CurrentTerm())
-
-		op.Callback <- *NewRaftReply(nil, reply, nil)
-
-	} else if op.Request.VoteRequest != nil {
-		reply := &pb.VoteReply{}
-
-		if candidate.nodeMaster.store.CurrentTerm() >= *op.Request.VoteRequest.Term {
-			// Reply false if term < currentTerm
-			reply.Granted = proto.Bool(false)
-			reply.Term = proto.Uint64(candidate.nodeMaster.store.CurrentTerm())
-		} else  {
-			// RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower
-			candidate.nodeMaster.store.SetCurrentTerm(*op.Request.VoteRequest.Term)
-			candidate.nodeMaster.state = FOLLOWER
-
-			reply.Granted = proto.Bool(false)
-			reply.Term = proto.Uint64(candidate.nodeMaster.store.CurrentTerm())
-		}
-		op.Callback <- *NewRaftReply(reply, nil, nil)
-
-	} else if op.Request.PutRequest != nil {
-		reply := &pb.PutReply{Success:proto.Bool(false)}
-		op.Callback <- *NewRaftReply(nil, nil, reply)
-	}
-}
-
-func (candidate *Candidate) VoteSelf() {
-	go func() {
-		for candidate.isCandidate() {
-			candidate.VoteSelfOnce()
-			if !candidate.isCandidate() {
-				break
-			}
-			// Randomly sleep for some time
-			time.Sleep(time.Millisecond * time.Duration(rand.Int31n(int32(*sleepTimeout)) + 1)) // TODO: make a flag
-		}
-	} ()
-}
-
-func (candidate *Candidate) VoteSelfOnce() {
-
-	numSuccess := 0
-	candidate.mu.Lock()
-	defer candidate.mu.Unlock()
-
-	log.Print("VoteSelfOnce\n")
-	// 1. Increment current term
-	candidate.nodeMaster.store.IncrementCurrentTerm()
-
-	// 2. Send votes to peers
-	// TODO: make this concurrent
-	for _, peer := range(candidate.nodeMaster.peers) {
-		if peer == candidate.nodeMaster.peers[candidate.nodeMaster.me] {
-			continue
-		}
-
+	for {
+		candidate.nodeMaster.store.IncrementCurrentTerm()
+		newTerm := candidate.nodeMaster.store.CurrentTerm()
 		l := candidate.nodeMaster.store.Read(candidate.nodeMaster.store.LatestIndex())
-		request := &pb.VoteRequest{
-			Term:proto.Uint64(candidate.nodeMaster.store.CurrentTerm()),
-			CandidateId:proto.String(candidate.nodeMaster.MyEndpoint()),
-			LastLogIndex:proto.Uint64(*l.LogId),
-			LastLogTerm:proto.Uint64(*l.Term)}
 
-		reply, err := candidate.nodeMaster.Exchange.Vote(peer, request)
-		if err != nil {
-			log.Println(err, "\n")
-			continue
-		}
+		processor := NewCandidateRequestProcessor(candidate)
+		voter := NewCandidateVoter(candidate)
 
-		if *reply.Granted {
-			log.Println("Granted from peer", peer, "\n")
-			numSuccess++
-		} else {
-			if candidate.nodeMaster.store.CurrentTerm() < *reply.Term {
-				// RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower
-				candidate.nodeMaster.store.SetCurrentTerm(*reply.Term)
+		voter.VoteSelfAtTerm(newTerm, l.GetTerm(), l.GetLogId())
+		processor.ProcessRequestsAtTerm(newTerm)
+
+		select {
+		case higerTerm := <- candidate.newTermChan:
+			if higerTerm >= newTerm {
 				candidate.nodeMaster.state = FOLLOWER
+				processor.Stop()
+				voter.Stop()
+				return
+			} else {
+				// shouldn't happend
+			}
+		case result := <- candidate.votedChan:
+			if result {
+				// I am the new leader
+				candidate.nodeMaster.state = LEADER
+				processor.Stop()
+				voter.Stop()
+				return
+			} else {
+				processor.Stop()
+				voter.Stop()
+			}
+		}
+	}
+
+}
+
+///////////////////////////////////////////////////////////////
+// CandidateRequestProcessor
+///////////////////////////////////////////////////////////////
+type CandidateRequestProcessor struct {
+	candidate *Candidate
+	stopped int32
+	mu sync.Mutex
+}
+
+func (processor *CandidateRequestProcessor) Stop() {
+	atomic.StoreInt32(&processor.stopped, 1)
+}
+
+func (processor *CandidateRequestProcessor) Stopped() bool {
+	return atomic.LoadInt32(&processor.stopped) == 1
+}
+
+func (processor *CandidateRequestProcessor) ProcessRequestsAtTerm(newTerm uint64) {
+	go func() {
+		processor.mu.Lock()
+		defer processor.mu.Unlock()
+
+		for {
+			if processor.Stopped() {
 				return
 			}
-		}
 
-		if numSuccess + 1 > len(candidate.nodeMaster.peers) / 2 {
-			// Guaranteed to be the new leader
-			candidate.nodeMaster.state = LEADER
-			break
+			op := processor.candidate.nodeMaster.OpsQueue.Pull(
+				time.Millisecond * time.Duration(*queuePullTimeout))
+
+			if op == nil {
+				continue
+			}
+
+			if op.Request.AppendRequest != nil {
+				reply := &pb.AppendReply{
+					Success:proto.Bool(false),
+					Term:proto.Uint64(newTerm)}
+
+				op.Callback <- *NewRaftReply(nil, reply, nil)
+
+				if newTerm <= op.Request.AppendRequest.GetTerm() {
+					processor.candidate.newTermChan <- op.Request.AppendRequest.GetTerm()
+					return
+				}
+
+			} else if op.Request.VoteRequest != nil {
+
+				reply := &pb.VoteReply{
+					Granted:proto.Bool(false),
+					Term:proto.Uint64(newTerm)}
+				op.Callback <- *NewRaftReply(reply, nil, nil)
+
+				if newTerm < op.Request.VoteRequest.GetTerm() {
+					processor.candidate.newTermChan <- op.Request.VoteRequest.GetTerm()
+					return
+				}
+
+			} else if op.Request.PutRequest != nil {
+				reply := &pb.PutReply{Success:proto.Bool(false)}
+				op.Callback <- *NewRaftReply(nil, nil, reply)
+			}
 		}
-	}
+	} ()
 }
 
-func (candidate *Candidate) isCandidate() bool {
-	candidate.mu.Lock()
-	defer candidate.mu.Unlock()
+///////////////////////////////////////////////////////////////
+// CandidateVoter
+///////////////////////////////////////////////////////////////
+type CandidateVoter struct {
+	candidate *Candidate
+	stopped int32
+	mu sync.Mutex
+}
 
-	return candidate.nodeMaster.state == CANDIDATE
+func (voter *CandidateVoter) Stop() {
+	atomic.StoreInt32(&voter.stopped, 1)
+}
+
+func (voter *CandidateVoter) Stopped() bool {
+	return atomic.LoadInt32(&voter.stopped) == 1
+}
+
+func (voter *CandidateVoter) VoteSelfAtTerm(newTerm, lastLogTerm, lastLogIndex uint64) {
+	go func() {
+		voter.mu.Lock()
+		defer voter.mu.Unlock()
+		if voter.Stopped() {
+			return
+		}
+
+		peers := voter.candidate.nodeMaster.PeerEndpoints()
+		shuffle := rand.Perm(len(peers))
+		shuffledPeers := make([]string, len(peers))
+		for i, _ := range shuffledPeers {
+			shuffledPeers[i] = peers[shuffle[i]]
+		}
+
+		request := &pb.VoteRequest{
+			Term:proto.Uint64(newTerm),
+			CandidateId:proto.String(voter.candidate.nodeMaster.MyEndpoint()),
+			LastLogTerm:proto.Uint64(lastLogTerm),
+			LastLogIndex:proto.Uint64(lastLogIndex)}
+
+		numSuccess := 1
+
+		for _, peer := range shuffledPeers {
+			if voter.Stopped() {
+				return
+			}
+
+			reply, err := voter.candidate.nodeMaster.Exchange.Vote(peer, request)
+			if err != nil {
+				log.Println(err)
+				continue
+			}
+			//log.Println("Send vote to", peer, reply.GetGranted())
+
+			if reply.GetGranted() {
+				numSuccess++
+			} else {
+				if newTerm < reply.GetTerm() {
+					// RPC request or response contains term T > currentTerm.
+					// Signal Candidate to become follower to set new term
+					voter.candidate.newTermChan <- reply.GetTerm()
+				}
+			}
+
+			if numSuccess > (len(peers) + 1) / 2 {
+				// Guaranteed to be the new leader
+				voter.candidate.votedChan <- true
+				break
+			}
+		}
+
+		if numSuccess > (len(peers) + 1) / 2 {
+			// Guaranteed to be the new leader
+			voter.candidate.votedChan <- true
+		}
+
+		// Leader not guaranteed
+		voter.candidate.votedChan <- false
+	} ()
 }
 
 ///////////////////////////////////////////////////////////////
 // Constructor
 ///////////////////////////////////////////////////////////////
 
+func NewCandidateRequestProcessor(candidate *Candidate) *CandidateRequestProcessor {
+	processor := &CandidateRequestProcessor{}
+	processor.candidate = candidate
+	processor.stopped = 0
+	return processor
+}
+
+func NewCandidateVoter(candidate *Candidate) *CandidateVoter {
+	voter := &CandidateVoter{}
+	voter.candidate = candidate
+	voter.stopped = 0
+	return voter
+}
+
 func NewCandidate(nodeMaster *NodeMaster) *Candidate {
 	candidate := &Candidate{}
 	candidate.nodeMaster = nodeMaster
+	candidate.votedChan = make(chan bool, 1)
+	candidate.newTermChan = make(chan uint64, 1)
 	return candidate
 }

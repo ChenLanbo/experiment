@@ -5,6 +5,7 @@ import (
 	"github.com/golang/protobuf/proto"
 	"github.com/golang/mock/gomock"
 	"github.com/chenlanbo/experiment/paxos/raft/test"
+	"time"
 )
 
 type CandidateComponentTest struct {
@@ -27,6 +28,7 @@ func (tt *CandidateComponentTest) setUp(t *testing.T) {
 
 	tt.nodeMaster = NewNodeMaster(tt.mockExchange, tt.peers, tt.me)
 	tt.candidate = NewCandidate(tt.nodeMaster)
+	tt.nodeMaster.state = CANDIDATE
 }
 
 func (tt *CandidateComponentTest) tearDown(t *testing.T) {
@@ -39,65 +41,199 @@ func (tt *CandidateComponentTest) tearDown(t *testing.T) {
 	tt.mockCtrl = nil
 }
 
-func TestVoteBothGranted(t *testing.T) {
+func TestVoteBothPeersGranted(t *testing.T) {
 	tt := &CandidateComponentTest{}
 	tt.setUp(t)
 	defer tt.tearDown(t)
-	tt.nodeMaster.state = CANDIDATE
 
 	reply := &pb.VoteReply{
 		Granted:proto.Bool(true),
 		Term:proto.Uint64(0)}
 	tt.mockExchange.EXPECT().Vote(gomock.Any(), gomock.Any()).Return(reply, nil)
 
-	tt.candidate.VoteSelfOnce()
-	if tt.nodeMaster.state != LEADER {
-		t.Fatal("Should have become a leader")
+	tt.nodeMaster.store.IncrementCurrentTerm()
+	newTerm := tt.nodeMaster.store.CurrentTerm()
+	l := tt.nodeMaster.store.Read(tt.nodeMaster.store.LatestIndex())
+
+	voter := NewCandidateVoter(tt.candidate)
+	voter.VoteSelfAtTerm(newTerm, l.GetTerm(), l.GetLogId())
+
+	select {
+	case result := <- tt.candidate.votedChan:
+		if !result {
+			t.Fail()
+		}
+	case <- time.After(time.Second * 10):
 		t.Fail()
 	}
 }
 
-func TestVoteOnlyOneGranted(t *testing.T) {
+func TestVoteOnlyOnePeerGranted(t *testing.T) {
 	tt := &CandidateComponentTest{}
 	tt.setUp(t)
 	defer tt.tearDown(t)
-	tt.nodeMaster.state = CANDIDATE
 
 	reply1 := &pb.VoteReply{
-		Granted:proto.Bool(true),
+		Granted:proto.Bool(false),
 		Term:proto.Uint64(0)}
-	tt.mockExchange.EXPECT().Vote(tt.peers[2], gomock.Any()).Return(reply1, nil)
+	tt.mockExchange.EXPECT().Vote(gomock.Any(), gomock.Any()).Return(reply1, nil)
 
 	reply2 := &pb.VoteReply{
-		Granted:proto.Bool(false),
+		Granted:proto.Bool(true),
 		Term:proto.Uint64(1)}
-	tt.mockExchange.EXPECT().Vote(tt.peers[1], gomock.Any()).Return(reply2, nil)
+	tt.mockExchange.EXPECT().Vote(gomock.Any(), gomock.Any()).Return(reply2, nil)
 
-	tt.candidate.VoteSelfOnce()
-	if tt.nodeMaster.state != LEADER {
-		t.Fatal("Should have become a leader")
+	tt.nodeMaster.store.IncrementCurrentTerm()
+	newTerm := tt.nodeMaster.store.CurrentTerm()
+	l := tt.nodeMaster.store.Read(tt.nodeMaster.store.LatestIndex())
+
+	voter := NewCandidateVoter(tt.candidate)
+	voter.VoteSelfAtTerm(newTerm, l.GetTerm(), l.GetLogId())
+
+	select {
+	case result := <- tt.candidate.votedChan:
+		if !result {
+			t.Fail()
+		}
+	case <- time.After(time.Second * 10):
 		t.Fail()
 	}
 }
 
-func TestVoteHigherTermReturned(t *testing.T) {
+func TestVoteNoPeersGranted(t *testing.T) {
 	tt := &CandidateComponentTest{}
 	tt.setUp(t)
 	defer tt.tearDown(t)
-	tt.nodeMaster.state = CANDIDATE
 
 	reply := &pb.VoteReply{
 		Granted:proto.Bool(false),
-		Term:proto.Uint64(2)}
+		Term:proto.Uint64(0)}
+	tt.mockExchange.EXPECT().Vote(gomock.Any(), gomock.Any()).Return(reply, nil)
 	tt.mockExchange.EXPECT().Vote(gomock.Any(), gomock.Any()).Return(reply, nil)
 
-	tt.candidate.VoteSelfOnce()
-	if tt.nodeMaster.state != FOLLOWER {
-		t.Fatal("Should have become a follower")
+	tt.nodeMaster.store.IncrementCurrentTerm()
+	newTerm := tt.nodeMaster.store.CurrentTerm()
+	l := tt.nodeMaster.store.Read(tt.nodeMaster.store.LatestIndex())
+
+	voter := NewCandidateVoter(tt.candidate)
+	voter.VoteSelfAtTerm(newTerm, l.GetTerm(), l.GetLogId())
+
+	select {
+	case result := <- tt.candidate.votedChan:
+		if result {
+			t.Fail()
+		}
+	case <- time.After(time.Second * 10):
 		t.Fail()
 	}
 }
 
-func TestCandidateProcessRequest(t *testing.T) {
-	// TODO(lanbochen): fill this test
+func TestProcessPutRequest(t *testing.T) {
+	tt := &CandidateComponentTest{}
+	tt.setUp(t)
+	defer tt.tearDown(t)
+
+	tt.nodeMaster.store.IncrementCurrentTerm()
+	newTerm := tt.nodeMaster.store.CurrentTerm()
+
+	processor := NewCandidateRequestProcessor(tt.candidate)
+	processor.ProcessRequestsAtTerm(newTerm)
+
+	request := &pb.PutRequest{
+		Key:proto.String("abc"),
+		Value:[]byte("abc")}
+	op := NewRaftOperation(NewRaftRequest(nil, nil, request))
+	tt.nodeMaster.OpsQueue.Push(op)
+
+	reply := <- op.Callback
+	if reply.PutReply == nil || reply.PutReply.GetSuccess() {
+		t.Fail()
+	}
+
+	processor.Stop()
+	if !processor.Stopped() {
+		t.Fail()
+	}
+}
+
+func TestProcessVoteRequest(t *testing.T) {
+	tt := &CandidateComponentTest{}
+	tt.setUp(t)
+	defer tt.tearDown(t)
+
+	tt.nodeMaster.store.IncrementCurrentTerm()
+	newTerm := tt.nodeMaster.store.CurrentTerm()
+
+	processor := NewCandidateRequestProcessor(tt.candidate)
+	processor.ProcessRequestsAtTerm(newTerm)
+
+	request1 := &pb.VoteRequest{
+		Term:proto.Uint64(newTerm),
+		CandidateId:proto.String(tt.peers[1]),
+		LastLogTerm:proto.Uint64(0),
+		LastLogIndex:proto.Uint64(0)}
+	op1 := NewRaftOperation(NewRaftRequest(request1, nil, nil))
+	tt.nodeMaster.OpsQueue.Push(op1)
+
+	reply1 := <- op1.Callback
+	if reply1.VoteReply == nil || reply1.VoteReply.GetGranted() {
+		t.Fail()
+	}
+
+	request2 := &pb.VoteRequest{
+		Term:proto.Uint64(newTerm + 1),
+		CandidateId:proto.String(tt.peers[1]),
+		LastLogTerm:proto.Uint64(0),
+		LastLogIndex:proto.Uint64(0)}
+	op2 := NewRaftOperation(NewRaftRequest(request2, nil, nil))
+	tt.nodeMaster.OpsQueue.Push(op2)
+
+	reply2 := <- op2.Callback
+	if reply2.VoteReply == nil || reply2.VoteReply.GetGranted() {
+		t.Fail()
+	}
+	higherTerm := <- tt.candidate.newTermChan
+	if higherTerm != newTerm + 1 {
+		t.Fail()
+	}
+
+	processor.Stop()
+	if !processor.Stopped() {
+		t.Fail()
+	}
+}
+
+func TestProcessAppendRequest(t *testing.T) {
+	tt := &CandidateComponentTest{}
+	tt.setUp(t)
+	defer tt.tearDown(t)
+
+	tt.nodeMaster.store.IncrementCurrentTerm()
+	newTerm := tt.nodeMaster.store.CurrentTerm()
+
+	processor := NewCandidateRequestProcessor(tt.candidate)
+	processor.ProcessRequestsAtTerm(newTerm)
+
+	request := &pb.AppendRequest{
+		Term:proto.Uint64(newTerm),
+		LeaderId:proto.String(tt.peers[1]),
+		PrevLogTerm:proto.Uint64(0),
+		PrevLogIndex:proto.Uint64(0),
+		Logs:make([]*pb.Log, 0)}
+	op := NewRaftOperation(NewRaftRequest(nil, request, nil))
+	tt.nodeMaster.OpsQueue.Push(op)
+
+	reply := <- op.Callback
+	if reply.AppendReply == nil || reply.AppendReply.GetSuccess() {
+		t.Fail()
+	}
+	higherTerm := <- tt.candidate.newTermChan
+	if higherTerm != newTerm {
+		t.Fail()
+	}
+
+	processor.Stop()
+	if !processor.Stopped() {
+		t.Fail()
+	}
 }
