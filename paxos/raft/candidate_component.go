@@ -37,6 +37,7 @@ func (candidate *Candidate) Run() {
 		voter.VoteSelfAtTerm(newTerm, l.GetTerm(), l.GetLogId())
 		processor.ProcessRequestsAtTerm(newTerm)
 
+		log.Println("~~~~~~~~~~~~~~")
 		select {
 		case higerTerm := <- candidate.newTermChan:
 			if higerTerm >= newTerm {
@@ -48,6 +49,7 @@ func (candidate *Candidate) Run() {
 				// shouldn't happend
 			}
 		case result := <- candidate.votedChan:
+			log.Println("Result:", result)
 			if result {
 				// I am the new leader
 				candidate.nodeMaster.state = LEADER
@@ -182,8 +184,10 @@ func (voter *CandidateVoter) VoteSelfAtTerm(newTerm, lastLogTerm, lastLogIndex u
 			//log.Println("Send vote to", peer, reply.GetGranted())
 
 			if reply.GetGranted() {
+				log.Println("Granted from", peer)
 				numSuccess++
 			} else {
+				log.Println("Not granted from", peer)
 				if newTerm < reply.GetTerm() {
 					// RPC request or response contains term T > currentTerm.
 					// Signal Candidate to become follower to set new term
@@ -192,15 +196,18 @@ func (voter *CandidateVoter) VoteSelfAtTerm(newTerm, lastLogTerm, lastLogIndex u
 			}
 
 			if numSuccess > (len(peers) + 1) / 2 {
+				log.Println("SUCCESS 1")
 				// Guaranteed to be the new leader
 				voter.candidate.votedChan <- true
-				break
+				return
 			}
 		}
 
 		if numSuccess > (len(peers) + 1) / 2 {
+			log.Println("SUCCESS 2")
 			// Guaranteed to be the new leader
 			voter.candidate.votedChan <- true
+			return
 		}
 
 		// Leader not guaranteed

@@ -237,3 +237,42 @@ func TestProcessAppendRequest(t *testing.T) {
 		t.Fail()
 	}
 }
+
+func TestCandidateRun(t *testing.T) {
+	tt := &CandidateComponentTest{}
+	tt.setUp(t)
+	defer tt.tearDown(t)
+
+	reply := &pb.VoteReply{
+		Granted:proto.Bool(true),
+		Term:proto.Uint64(0)}
+	tt.mockExchange.EXPECT().Vote(gomock.Any(), gomock.Any()).Return(reply, nil)
+
+	tt.candidate.Run()
+
+	if tt.nodeMaster.state != LEADER {
+		t.Fail()
+	}
+}
+
+func TestCandidateRun2(t *testing.T) {
+	tt := &CandidateComponentTest{}
+	tt.setUp(t)
+	defer tt.tearDown(t)
+
+	reply1 := &pb.VoteReply{
+		Granted:proto.Bool(false),
+		Term:proto.Uint64(1)}
+	tt.mockExchange.EXPECT().Vote(gomock.Any(), gomock.Any()).Return(reply1, nil).Times(2)
+
+	reply2 := &pb.VoteReply{
+		Granted:proto.Bool(true),
+		Term:proto.Uint64(1)}
+	tt.mockExchange.EXPECT().Vote(gomock.Any(), gomock.Any()).Return(reply2, nil).Times(1)
+
+	tt.candidate.Run()
+	t.Log(tt.nodeMaster.store.CurrentTerm())
+	if tt.nodeMaster.state != LEADER {
+		t.Fail()
+	}
+}
