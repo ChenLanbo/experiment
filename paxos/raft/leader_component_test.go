@@ -42,50 +42,32 @@ func (tt *LeaderComponentTest) tearDown(t *testing.T) {
 	tt.mockCtrl = nil
 }
 
-func TestLogReplicatorReplicateIndexNotAdvanced(t *testing.T) {
-	tt := &LeaderComponentTest{}
-	tt.setUp(t)
-	defer tt.tearDown(t)
-
-	reply := &pb.AppendReply{
-		Success:proto.Bool(true),
-		Term:proto.Uint64(1)}
-	tt.mockExchange.EXPECT().Append(gomock.Any(), gomock.Any()).Return(reply, nil)
-
-	replicator1 := tt.leader.logReplicators[0]
-	replicator1.ReplicateOnce()
-	if replicator1.replicateIndex != tt.nodeMaster.store.CommitIndex() {
-		t.Fatal("ReplicateIndex should not be advancecd", replicator1.replicateIndex)
-		t.Fail()
-	}
-}
-
 func TestLogReplicatorReplicateIndexAdvanced(t *testing.T) {
 	tt := &LeaderComponentTest{}
 	tt.setUp(t)
 	defer tt.tearDown(t)
 
-	replicator := tt.leader.logReplicators[0]
 	n := 8
+	fakeData := make([]byte, 0)
+	for i := 0; i < n; i++ {
+		tt.nodeMaster.store.Write(fakeData)
+	}
 
 	reply := &pb.AppendReply{
 		Success:proto.Bool(true),
 		Term:proto.Uint64(1)}
+	tt.mockExchange.EXPECT().Append(gomock.Any(), gomock.Any()).Return(reply, nil).AnyTimes()
 
-	fakeData := make([]byte, 0)
-
-	for i := 0; i < n; i++ {
-		tt.nodeMaster.store.Write(fakeData)
-		tt.mockExchange.EXPECT().Append(gomock.Any(), gomock.Any()).Return(reply, nil)
-	}
-
+	replicator := tt.leader.replicators[0]
 	for i := 0; i < n; i++ {
 		replicator.ReplicateOnce()
 	}
+
 	if replicator.replicateIndex != uint64(n) {
 		t.Log("ReplicateIndex:", replicator.replicateIndex, "\n")
 		t.Fail()
 	}
+	replicator.Stop()
 }
 
 func TestLogReplicatorReplicateFromPreviousLog(t *testing.T) {
@@ -93,7 +75,7 @@ func TestLogReplicatorReplicateFromPreviousLog(t *testing.T) {
 	tt.setUp(t)
 	defer tt.tearDown(t)
 
-	replicator := tt.leader.logReplicators[0]
+	replicator := tt.leader.replicators[0]
 
 	n := 8
 	fakeData := make([]byte, 0)
@@ -110,7 +92,6 @@ func TestLogReplicatorReplicateFromPreviousLog(t *testing.T) {
 	replicator.ReplicateOnce()
 
 	// ReplicateIndex moves backward
-	t.Log(replicator.replicateIndex)
 	if replicator.replicateIndex != uint64(n - 1) {
 		t.Fatal("ReplicateIndex should move backward")
 		t.Fail()
@@ -129,7 +110,6 @@ func TestLogReplicatorReplicateFromPreviousLog(t *testing.T) {
 	replicator.ReplicateOnce()
 
 	// ReplicateIndex moves forward
-	t.Log(replicator.replicateIndex)
 	if replicator.replicateIndex != uint64(n) {
 		t.Fatal("ReplicateIndex should move forward")
 		t.Fail()
@@ -144,18 +124,18 @@ func TestLogCommitter(t *testing.T) {
 	reply := &pb.AppendReply{
 		Success:proto.Bool(true),
 		Term:proto.Uint64(1)}
+	tt.mockExchange.EXPECT().Append(gomock.Any(), gomock.Any()).Return(reply, nil).AnyTimes()
+
 	fakeData := make([]byte, 0)
 	n := 8
-
 	for i := 0; i < n; i++ {
 		tt.nodeMaster.store.Write(fakeData)
-		for _, replicator := range (tt.leader.logReplicators) {
-			tt.mockExchange.EXPECT().Append(gomock.Any(), gomock.Any()).Return(reply, nil)
+		for _, replicator := range tt.leader.replicators {
 			replicator.ReplicateOnce()
 		}
 	}
 
-	tt.leader.logCommitter.CommitOnce()
+	tt.leader.committer.CommitOnce()
 	commitIndex := tt.leader.nodeMaster.store.CommitIndex()
 	if commitIndex != uint64(n) {
 		t.Fatal("CommitIndex not advanced:", commitIndex, "expected:", n)
@@ -164,53 +144,18 @@ func TestLogCommitter(t *testing.T) {
 
 	n++
 	tt.nodeMaster.store.Write(fakeData)
-
-	tt.leader.logCommitter.CommitOnce()
+	tt.leader.committer.CommitOnce()
 	commitIndex = tt.leader.nodeMaster.store.CommitIndex()
 	if commitIndex == uint64(n) {
 		t.Fatal("CommitIndex should not be advanced:", commitIndex)
 		t.Fail()
 	}
 
-	tt.mockExchange.EXPECT().Append(gomock.Any(), gomock.Any()).Return(reply, nil)
-	tt.leader.logReplicators[0].ReplicateOnce()
-	tt.leader.logCommitter.CommitOnce()
+	tt.leader.replicators[0].ReplicateOnce()
+	tt.leader.committer.CommitOnce()
 	commitIndex = tt.leader.nodeMaster.store.CommitIndex()
 	if commitIndex != uint64(n) {
 		t.Fatal("CommitIndex not advanced:", commitIndex, "expected:", n)
 		t.Fail()
-	}
-}
-
-func TestLeaderProcessPutRequest(t *testing.T) {
-	tt := &LeaderComponentTest{}
-	tt.setUp(t)
-	defer tt.tearDown(t)
-
-	appendReply := &pb.AppendReply{
-		Success:proto.Bool(true),
-		Term:proto.Uint64(tt.nodeMaster.store.CurrentTerm())}
-	tt.mockExchange.EXPECT().Append(gomock.Any(), gomock.Any()).Return(appendReply, nil)
-
-	putRequest := &pb.PutRequest{
-		Key:proto.String("abc"),
-		Value:[]byte("abc")}
-	op := NewRaftOperation(NewRaftRequest(nil, nil, putRequest))
-	tt.nodeMaster.OpsQueue.Push(op)
-
-	tt.leader.ProcessOneRequest()
-	if tt.nodeMaster.store.LatestIndex() == 0 {
-		t.Error("Should have new log in the store")
-	}
-
-	tt.leader.logReplicators[0].ReplicateOnce()
-	tt.leader.logCommitter.CommitOnce()
-
-	reply := <- op.Callback
-	if reply.PutReply == nil {
-		t.Error("PutReply is null")
-	}
-	if !*reply.PutReply.Success {
-		t.Error("PutReply should success")
 	}
 }

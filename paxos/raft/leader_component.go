@@ -6,6 +6,7 @@ import (
 	"log"
 	"time"
 	"sort"
+	"sync/atomic"
 )
 
 ///////////////////////////////////////////////////////////////
@@ -15,29 +16,65 @@ import (
 type Leader struct {
 	mu sync.Mutex
 	nodeMaster *NodeMaster
-	logReplicators []*LogReplicator
-	logCommitter *LogCommitter
+	replicators []*LogReplicator
+	committer *LogCommitter
+	processor *LeaderRequestProcessor
+	newTermChan chan uint64
 }
 
 func (leader *Leader) Run() {
-	leader.ProcessRequest()
-	leader.ReplicateLog()
-	leader.CommitLog()
+	leader.processor.Start()
+	leader.committer.Start()
+	for _, replicator := range leader.replicators {
+		replicator.Start()
+	}
+
+	for {
+		newTerm := <- leader.newTermChan
+		if newTerm > leader.nodeMaster.store.CurrentTerm() {
+			leader.nodeMaster.state = FOLLOWER
+
+			leader.processor.Stop()
+			leader.committer.Stop()
+			for _, replicator := range leader.replicators {
+				replicator.Stop()
+			}
+
+			return
+		}
+	}
 }
 
-func (leader *Leader) ProcessRequest() {
+///////////////////////////////////////////////////////////////
+// LeaderRequestProcessor
+///////////////////////////////////////////////////////////////
+
+type LeaderRequestProcessor struct {
+	leader *Leader
+	stopped int32
+	mu sync.Mutex
+}
+
+func (processor *LeaderRequestProcessor) Start() {
 	go func() {
-		for leader.isLeader() {
-			leader.ProcessOneRequest()
+		processor.mu.Lock()
+		defer processor.mu.Unlock()
+
+		for !processor.Stopped() {
+			if !processor.ProcessOnce() {
+				return
+			}
 		}
 	} ()
 }
 
-func (leader *Leader) ProcessOneRequest() {
+func (processor *LeaderRequestProcessor) ProcessOnce() bool {
+	queue := processor.leader.nodeMaster.OpsQueue
+	store := processor.leader.nodeMaster.store
 
-	op := leader.nodeMaster.OpsQueue.Pull(time.Millisecond * time.Duration(*queuePullTimeout))
+	op := queue.Pull(time.Millisecond * time.Duration(*queuePullTimeout))
 	if op == nil {
-		return
+		return true
 	}
 
 	if op.Request.AppendRequest != nil {
@@ -45,73 +82,50 @@ func (leader *Leader) ProcessOneRequest() {
 
 		reply := &pb.AppendReply{}
 		reply.Success = proto.Bool(false)
-		reply.Term = proto.Uint64(leader.nodeMaster.store.CurrentTerm())
-
-		if leader.nodeMaster.store.CommitIndex() < *op.Request.AppendRequest.Term {
-			// I am not leader anymore
-			leader.nodeMaster.store.SetCurrentTerm(*op.Request.AppendRequest.Term)
-			leader.Revoke()
-		}
+		reply.Term = proto.Uint64(store.CurrentTerm())
 
 		op.Callback <- *NewRaftReply(nil, reply, nil)
+
+		if store.CurrentTerm() < op.Request.AppendRequest.GetTerm() {
+			// I am not leader anymore
+			processor.leader.newTermChan <- op.Request.AppendRequest.GetTerm()
+			return false
+		}
 
 	} else if op.Request.VoteRequest != nil {
 		// Process vote request
 
 		reply := &pb.VoteReply{}
 		reply.Granted = proto.Bool(false)
-		reply.Term = proto.Uint64(leader.nodeMaster.store.CurrentTerm())
-
-		if leader.nodeMaster.store.CommitIndex() < *op.Request.AppendRequest.Term {
-			// I am not leader anymore
-			leader.nodeMaster.store.SetCurrentTerm(*op.Request.AppendRequest.Term)
-			leader.Revoke()
-		}
+		reply.Term = proto.Uint64(store.CurrentTerm())
 
 		op.Callback <- *NewRaftReply(reply, nil, nil)
+
+		if store.CurrentTerm() < op.Request.AppendRequest.GetTerm() {
+			// I am not leader anymore
+			processor.leader.newTermChan <- op.Request.AppendRequest.GetTerm()
+			return false
+		}
 
 	} else if op.Request.PutRequest != nil {
 		// Process put request
 
 		// Write data to store and put into inflight requests.
 		// Once commit index advanced by committer, ack the request.
-		logId := leader.nodeMaster.store.WriteKeyValue(
+		logId := store.WriteKeyValue(
 			*op.Request.PutRequest.Key, op.Request.PutRequest.Value)
-		leader.nodeMaster.inflightRequests[logId] = op
-	}
-}
-
-func (leader *Leader) ReplicateLog() {
-	for _, replicator := range(leader.logReplicators) {
-		replicator.Start()
-	}
-}
-
-func (leader *Leader) CommitLog() {
-	leader.logCommitter.Start()
-}
-
-// Revoke the leader itself as a leader.
-func (leader *Leader) Revoke() {
-	leader.mu.Lock()
-	defer leader.mu.Unlock()
-
-	if leader.nodeMaster.state != LEADER {
-		return
+		processor.leader.nodeMaster.inflightRequests[logId] = op
 	}
 
-	for _, r := range(leader.logReplicators) {
-		r.Stop()
-	}
-	<- time.After(time.Second)
-	leader.nodeMaster.state = FOLLOWER
+	return true
 }
 
-func (leader *Leader) isLeader() bool {
-	leader.mu.Lock()
-	defer leader.mu.Unlock()
+func (processor *LeaderRequestProcessor) Stop() {
+	atomic.StoreInt32(&processor.stopped, 1)
+}
 
-	return leader.nodeMaster.state == LEADER
+func (processor *LeaderRequestProcessor) Stopped() bool {
+	return atomic.LoadInt32(&processor.stopped) == 1
 }
 
 ///////////////////////////////////////////////////////////////
@@ -119,23 +133,29 @@ func (leader *Leader) isLeader() bool {
 ///////////////////////////////////////////////////////////////
 
 type LogReplicator struct {
-	parent *Leader
+	leader *Leader
 	peer string
 	replicateIndex uint64
 	prevLog *pb.Log
-	stopped bool
+	stopped int32
+	mu sync.Mutex
 }
 
 func (replicator *LogReplicator) Start() {
 	go func() {
-		for !replicator.stopped {
-			replicator.ReplicateOnce()
+		replicator.mu.Lock()
+		defer replicator.mu.Unlock()
+
+		for !replicator.Stopped() {
+			if !replicator.ReplicateOnce() {
+				return
+			}
 		}
 	} ()
 }
 
-func (replicator *LogReplicator) ReplicateOnce() {
-	store := replicator.parent.nodeMaster.store
+func (replicator *LogReplicator) ReplicateOnce() bool {
+	store := replicator.leader.nodeMaster.store
 
 	newLog := store.Poll(replicator.replicateIndex + 1)
 	logsToReplicate := make([]*pb.Log, 0)
@@ -145,25 +165,29 @@ func (replicator *LogReplicator) ReplicateOnce() {
 
 	request := &pb.AppendRequest{
 		Term:proto.Uint64(store.CurrentTerm()),
-		LeaderId:proto.String(replicator.parent.nodeMaster.MyEndpoint()),
-		PrevLogTerm:proto.Uint64(*replicator.prevLog.Term),
-		PrevLogIndex:proto.Uint64(*replicator.prevLog.LogId),
+		LeaderId:proto.String(replicator.leader.nodeMaster.MyEndpoint()),
+		PrevLogTerm:proto.Uint64(replicator.prevLog.GetTerm()),
+		PrevLogIndex:proto.Uint64(replicator.prevLog.GetLogId()),
 		CommitIndex:proto.Uint64(store.CommitIndex()),
 		Logs:logsToReplicate}
 
-	reply, err := replicator.parent.nodeMaster.Exchange.Append(replicator.peer, request)
+	reply, err := replicator.leader.nodeMaster.Exchange.Append(replicator.peer, request)
 	if err != nil {
 		log.Fatal("Failed to replicate logs to", replicator.peer)
 	} else {
-		if *reply.Success {
+		if reply.GetSuccess() {
 			if len(logsToReplicate) > 0 {
 				replicator.replicateIndex++
 				replicator.prevLog = newLog
+				// log.Println("Replicator", replicator.peer, ":", replicator.replicateIndex)
 			}
 		} else {
-			if *reply.Term > store.CurrentTerm() {
-				// return to follower state
+			if reply.GetTerm() > store.CurrentTerm() {
+				// Return to follower state
+				replicator.leader.newTermChan <- reply.GetTerm()
+				return false
 			} else {
+				// Replicate backward
 				if replicator.replicateIndex > 0 {
 					replicator.replicateIndex--
 				}
@@ -171,20 +195,21 @@ func (replicator *LogReplicator) ReplicateOnce() {
 			}
 		}
 	}
+
+	return true
 }
 
 func (replicator *LogReplicator) Stop() {
-	replicator.stopped = true
+	atomic.StoreInt32(&replicator.stopped, 1)
+}
+
+func (replicator *LogReplicator) Stopped() bool {
+	return atomic.LoadInt32(&replicator.stopped) == 1
 }
 
 ///////////////////////////////////////////////////////////////
-// Log committer
+// Replicate index sorter
 ///////////////////////////////////////////////////////////////
-
-type LogCommitter struct {
-	leader *Leader
-	stopped bool
-}
 
 type ReplicateIndexSorter []uint64
 
@@ -197,56 +222,93 @@ func (s ReplicateIndexSorter) Swap(i, j int) {
 }
 
 func (s ReplicateIndexSorter) Less(i, j int) bool {
-	return s[i] < s[j]
+	return s[i] > s[j]
+}
+
+///////////////////////////////////////////////////////////////
+// Log committer
+///////////////////////////////////////////////////////////////
+
+type LogCommitter struct {
+	leader *Leader
+	stopped int32
+	mu sync.Mutex
 }
 
 func (committer *LogCommitter) Start() {
 	go func() {
-		for !committer.stopped {
+		committer.mu.Lock()
+		defer committer.mu.Unlock()
+
+		for !committer.Stopped() {
 			committer.CommitOnce()
 		}
 	} ()
 }
 
 func (committer *LogCommitter) CommitOnce() {
-	if committer.leader.nodeMaster.store.CommitIndex() < committer.leader.nodeMaster.store.LatestIndex() {
-		arr := make([]uint64, len(committer.leader.logReplicators))
-		for id, replicator := range(committer.leader.logReplicators) {
+	store := committer.leader.nodeMaster.store
+	updated := false
+	if store.CommitIndex() < store.LatestIndex() {
+		arr := make([]uint64, len(committer.leader.replicators) + 1)
+		for id, replicator := range(committer.leader.replicators) {
 			arr[id] = replicator.replicateIndex
 		}
+		arr[len(arr) - 1] = store.LatestIndex()
 
 		sort.Sort(ReplicateIndexSorter(arr))
-		log.Println("ARR:", arr, "setting commit index to", arr[len(arr) / 2])
-		committer.leader.nodeMaster.store.SetCommitIndex(arr[len(arr) / 2])
+		if arr[len(arr) / 2] > store.CommitIndex() {
+			store.SetCommitIndex(arr[len(arr) / 2])
+			updated = true
+		} else {
+			time.Sleep(time.Millisecond * 10)
+		}
 	} else {
-		<- time.After(time.Millisecond * 10)
+		time.Sleep(time.Millisecond * 10)
 	}
 
 	// Ack inflight put requests
-	reply := &pb.PutReply{Success:proto.Bool(true)}
-	commitIndex := committer.leader.nodeMaster.store.CommitIndex()
-	for logId, op := range committer.leader.nodeMaster.inflightRequests {
-		if logId <= commitIndex {
-			op.Callback <- *NewRaftReply(nil, nil, reply)
+	if updated {
+		reply := &pb.PutReply{Success:proto.Bool(true)}
+		commitIndex := committer.leader.nodeMaster.store.CommitIndex()
+		for logId, op := range committer.leader.nodeMaster.inflightRequests {
+			if logId <= commitIndex {
+				op.Callback <- *NewRaftReply(nil, nil, reply)
+			}
+			delete(committer.leader.nodeMaster.inflightRequests, logId)
 		}
-		delete(committer.leader.nodeMaster.inflightRequests, logId)
 	}
+}
+
+func (committer *LogCommitter) Stop() {
+	atomic.StoreInt32(&committer.stopped, 1)
+}
+
+func (committer *LogCommitter) Stopped() bool {
+	return atomic.LoadInt32(&committer.stopped) == 1
 }
 
 ///////////////////////////////////////////////////////////////
 // Constructors
 ///////////////////////////////////////////////////////////////
 
+func NewLeaderRequestProcessor(leader *Leader) *LeaderRequestProcessor {
+	processor := &LeaderRequestProcessor{}
+	processor.leader = leader
+	processor.stopped = 0
+	return processor
+}
+
 func NewLogReplicator(leader *Leader, peer string) *LogReplicator {
 	replicator := &LogReplicator{}
-	replicator.parent = leader
+	replicator.leader = leader
 	replicator.peer = peer
 
 	// Start with commit index
 	replicator.replicateIndex = leader.nodeMaster.store.CommitIndex()
 	replicator.prevLog = leader.nodeMaster.store.Read(replicator.replicateIndex)
 
-	replicator.stopped = false
+	replicator.stopped = 0
 
 	return replicator
 }
@@ -254,7 +316,7 @@ func NewLogReplicator(leader *Leader, peer string) *LogReplicator {
 func NewLogCommitter(leader *Leader) *LogCommitter {
 	committer := &LogCommitter{}
 	committer.leader = leader
-	committer.stopped = false
+	committer.stopped = 0
 	return committer
 }
 
@@ -266,9 +328,12 @@ func NewLeader(nodeMaster *NodeMaster) *Leader {
 	for _, peer := range(nodeMaster.PeerEndpoints()) {
 		logReplicators = append(logReplicators, NewLogReplicator(leader, peer))
 	}
-	leader.logReplicators = logReplicators
+	leader.replicators = logReplicators
 
-	leader.logCommitter = NewLogCommitter(leader)
+	leader.committer = NewLogCommitter(leader)
+	leader.processor = NewLeaderRequestProcessor(leader)
+
+	leader.newTermChan = make(chan uint64, len(logReplicators) + 1)
 
 	return leader
 }

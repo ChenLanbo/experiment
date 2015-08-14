@@ -37,7 +37,6 @@ func (candidate *Candidate) Run() {
 		voter.VoteSelfAtTerm(newTerm, l.GetTerm(), l.GetLogId())
 		processor.ProcessRequestsAtTerm(newTerm)
 
-		log.Println("~~~~~~~~~~~~~~")
 		select {
 		case higerTerm := <- candidate.newTermChan:
 			if higerTerm >= newTerm {
@@ -57,17 +56,18 @@ func (candidate *Candidate) Run() {
 				voter.Stop()
 				return
 			} else {
+				time.Sleep(time.Millisecond * time.Duration(rand.Int31n(int32(*sleepTimeout)) + 1))
 				processor.Stop()
 				voter.Stop()
 			}
 		}
 	}
-
 }
 
 ///////////////////////////////////////////////////////////////
 // CandidateRequestProcessor
 ///////////////////////////////////////////////////////////////
+
 type CandidateRequestProcessor struct {
 	candidate *Candidate
 	stopped int32

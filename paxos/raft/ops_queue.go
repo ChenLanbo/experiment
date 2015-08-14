@@ -11,6 +11,7 @@ var (
 )
 
 type OperationQueue struct {
+	// Go channel is thread safe
 	queue chan *RaftOperation
 }
 
