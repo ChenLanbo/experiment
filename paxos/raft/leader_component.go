@@ -20,6 +20,7 @@ type Leader struct {
 	committer *LogCommitter
 	processor *LeaderRequestProcessor
 	newTermChan chan uint64
+	stopped int32
 }
 
 func (leader *Leader) Run() {
@@ -29,20 +30,27 @@ func (leader *Leader) Run() {
 		replicator.Start()
 	}
 
-	for {
+	for !leader.Stopped() {
 		newTerm := <- leader.newTermChan
 		if newTerm > leader.nodeMaster.store.CurrentTerm() {
 			leader.nodeMaster.state = FOLLOWER
-
-			leader.processor.Stop()
-			leader.committer.Stop()
-			for _, replicator := range leader.replicators {
-				replicator.Stop()
-			}
-
+			leader.Stop()
 			return
 		}
 	}
+}
+
+func (leader *Leader) Stop() {
+	atomic.StoreInt32(&leader.stopped, 1)
+	leader.processor.Stop()
+	leader.committer.Stop()
+	for _, replicator := range leader.replicators {
+		replicator.Stop()
+	}
+}
+
+func (leader *Leader) Stopped() bool {
+	return atomic.LoadInt32(&leader.stopped) == 1
 }
 
 ///////////////////////////////////////////////////////////////
@@ -101,9 +109,9 @@ func (processor *LeaderRequestProcessor) ProcessOnce() bool {
 
 		op.Callback <- *NewRaftReply(reply, nil, nil)
 
-		if store.CurrentTerm() < op.Request.AppendRequest.GetTerm() {
+		if store.CurrentTerm() < op.Request.VoteRequest.GetTerm() {
 			// I am not leader anymore
-			processor.leader.newTermChan <- op.Request.AppendRequest.GetTerm()
+			processor.leader.newTermChan <- op.Request.VoteRequest.GetTerm()
 			return false
 		}
 
@@ -243,6 +251,13 @@ func (committer *LogCommitter) Start() {
 		for !committer.Stopped() {
 			committer.CommitOnce()
 		}
+
+		// Reply all pending put requests
+		reply := &pb.PutReply{Success:proto.Bool(false)}
+		for logId, op := range committer.leader.nodeMaster.inflightRequests {
+			op.Callback <- *NewRaftReply(nil, nil, reply)
+			delete(committer.leader.nodeMaster.inflightRequests, logId)
+		}
 	} ()
 }
 
@@ -334,6 +349,6 @@ func NewLeader(nodeMaster *NodeMaster) *Leader {
 	leader.processor = NewLeaderRequestProcessor(leader)
 
 	leader.newTermChan = make(chan uint64, len(logReplicators) + 1)
-
+	leader.stopped = 0
 	return leader
 }

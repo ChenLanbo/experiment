@@ -41,7 +41,7 @@ func (tt *CandidateComponentTest) tearDown(t *testing.T) {
 	tt.mockCtrl = nil
 }
 
-func TestVoteBothPeersGranted(t *testing.T) {
+func TestCandidateVoteBothPeersGranted(t *testing.T) {
 	tt := &CandidateComponentTest{}
 	tt.setUp(t)
 	defer tt.tearDown(t)
@@ -68,7 +68,7 @@ func TestVoteBothPeersGranted(t *testing.T) {
 	}
 }
 
-func TestVoteOnlyOnePeerGranted(t *testing.T) {
+func TestCandidateVoteOnlyOnePeerGranted(t *testing.T) {
 	tt := &CandidateComponentTest{}
 	tt.setUp(t)
 	defer tt.tearDown(t)
@@ -100,7 +100,7 @@ func TestVoteOnlyOnePeerGranted(t *testing.T) {
 	}
 }
 
-func TestVoteNoPeersGranted(t *testing.T) {
+func TestCandidateVoteNoPeersGranted(t *testing.T) {
 	tt := &CandidateComponentTest{}
 	tt.setUp(t)
 	defer tt.tearDown(t)
@@ -128,7 +128,7 @@ func TestVoteNoPeersGranted(t *testing.T) {
 	}
 }
 
-func TestProcessPutRequest(t *testing.T) {
+func TestCandidateProcessPutRequest(t *testing.T) {
 	tt := &CandidateComponentTest{}
 	tt.setUp(t)
 	defer tt.tearDown(t)
@@ -156,7 +156,7 @@ func TestProcessPutRequest(t *testing.T) {
 	}
 }
 
-func TestProcessVoteRequest(t *testing.T) {
+func TestCandidateProcessVoteRequest(t *testing.T) {
 	tt := &CandidateComponentTest{}
 	tt.setUp(t)
 	defer tt.tearDown(t)
@@ -203,7 +203,7 @@ func TestProcessVoteRequest(t *testing.T) {
 	}
 }
 
-func TestProcessAppendRequest(t *testing.T) {
+func TestCandidateProcessAppendRequest(t *testing.T) {
 	tt := &CandidateComponentTest{}
 	tt.setUp(t)
 	defer tt.tearDown(t)

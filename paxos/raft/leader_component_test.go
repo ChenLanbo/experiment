@@ -5,6 +5,7 @@ import (
 	"github.com/golang/protobuf/proto"
 	"github.com/golang/mock/gomock"
 	"github.com/chenlanbo/experiment/paxos/raft/test"
+	"time"
 )
 
 type LeaderComponentTest struct {
@@ -42,7 +43,7 @@ func (tt *LeaderComponentTest) tearDown(t *testing.T) {
 	tt.mockCtrl = nil
 }
 
-func TestLogReplicatorReplicateIndexAdvanced(t *testing.T) {
+func TestLeaderLogReplicatorReplicateIndexAdvanced(t *testing.T) {
 	tt := &LeaderComponentTest{}
 	tt.setUp(t)
 	defer tt.tearDown(t)
@@ -70,7 +71,7 @@ func TestLogReplicatorReplicateIndexAdvanced(t *testing.T) {
 	replicator.Stop()
 }
 
-func TestLogReplicatorReplicateFromPreviousLog(t *testing.T) {
+func TestLeaderLogReplicatorReplicateFromPreviousLog(t *testing.T) {
 	tt := &LeaderComponentTest{}
 	tt.setUp(t)
 	defer tt.tearDown(t)
@@ -116,7 +117,7 @@ func TestLogReplicatorReplicateFromPreviousLog(t *testing.T) {
 	}
 }
 
-func TestLogCommitter(t *testing.T) {
+func TestLeaderLogCommitterCommit(t *testing.T) {
 	tt := &LeaderComponentTest{}
 	tt.setUp(t)
 	defer tt.tearDown(t)
@@ -156,6 +157,194 @@ func TestLogCommitter(t *testing.T) {
 	commitIndex = tt.leader.nodeMaster.store.CommitIndex()
 	if commitIndex != uint64(n) {
 		t.Fatal("CommitIndex not advanced:", commitIndex, "expected:", n)
+		t.Fail()
+	}
+}
+
+func TestLeaderProcessPutRequest(t *testing.T) {
+	tt := &LeaderComponentTest{}
+	tt.setUp(t)
+	defer tt.tearDown(t)
+
+	appendReply := &pb.AppendReply{
+		Success:proto.Bool(true),
+		Term:proto.Uint64(1)}
+	tt.mockExchange.EXPECT().Append(gomock.Any(), gomock.Any()).Return(appendReply, nil).AnyTimes()
+
+	request := &pb.PutRequest{
+		Key:proto.String("abc"),
+		Value:[]byte("abc")}
+	op := NewRaftOperation(NewRaftRequest(nil, nil, request))
+	tt.nodeMaster.OpsQueue.Push(op)
+
+	tt.leader.processor.ProcessOnce()
+	tt.leader.replicators[0].ReplicateOnce()
+	tt.leader.committer.CommitOnce()
+
+	reply := <- op.Callback
+	if reply.PutReply == nil {
+		t.Fail()
+	}
+	if !reply.PutReply.GetSuccess() {
+		t.Fail()
+	}
+}
+
+func TestLeaderProcessVoteRequest(t *testing.T) {
+	tt := &LeaderComponentTest{}
+	tt.setUp(t)
+	defer tt.tearDown(t)
+
+	request1 := &pb.VoteRequest{
+		Term:proto.Uint64(1),
+		CandidateId:proto.String(tt.peers[1]),
+		LastLogTerm:proto.Uint64(0),
+		LastLogIndex:proto.Uint64(0)}
+	op1 := NewRaftOperation(NewRaftRequest(request1, nil, nil))
+	tt.nodeMaster.OpsQueue.Push(op1)
+
+	if !tt.leader.processor.ProcessOnce() {
+		t.Fail()
+	}
+
+	reply1 := <- op1.Callback
+	if reply1.VoteReply == nil {
+		t.Fail()
+	}
+
+	request2 := &pb.VoteRequest{
+		Term:proto.Uint64(2),
+		CandidateId:proto.String(tt.peers[1]),
+		LastLogTerm:proto.Uint64(0),
+		LastLogIndex:proto.Uint64(0)}
+	op2 := NewRaftOperation(NewRaftRequest(request2, nil, nil))
+	tt.nodeMaster.OpsQueue.Push(op2)
+
+	if tt.leader.processor.ProcessOnce() {
+		t.Fail()
+	}
+
+	reply2 := <- op2.Callback
+	if reply2.VoteReply == nil {
+		t.Fail()
+	}
+
+	newTerm := <- tt.leader.newTermChan
+	t.Log(newTerm)
+	if newTerm != 2 {
+		t.Fail()
+	}
+}
+
+func TestLeaderRun(t *testing.T) {
+	tt := &LeaderComponentTest{}
+	tt.setUp(t)
+	defer tt.tearDown(t)
+
+	appendReply := &pb.AppendReply{
+		Success:proto.Bool(true),
+		Term:proto.Uint64(1)}
+	tt.mockExchange.EXPECT().Append(gomock.Any(), gomock.Any()).Return(appendReply, nil).AnyTimes()
+
+	go func() {
+		tt.leader.Run()
+	} ()
+
+	// Test put
+	request := &pb.PutRequest{
+		Key:proto.String("abc"),
+		Value:[]byte("abc")}
+	op := NewRaftOperation(NewRaftRequest(nil, nil, request))
+	tt.nodeMaster.OpsQueue.Push(op)
+
+	reply := <- op.Callback
+	if reply.PutReply == nil {
+		t.Fail()
+	}
+	if !reply.PutReply.GetSuccess() {
+		t.Fail()
+	}
+
+	// Test stop
+	tt.leader.Stop()
+	if !tt.leader.committer.Stopped() || !tt.leader.processor.Stopped() {
+		t.Fail()
+	}
+	for _, replicator := range tt.leader.replicators {
+		if !replicator.Stopped() {
+			t.Fail()
+		}
+	}
+}
+
+func TestLeaderRun2(t *testing.T) {
+	tt := &LeaderComponentTest{}
+	tt.setUp(t)
+	defer tt.tearDown(t)
+
+	appendReply := &pb.AppendReply{
+		Success:proto.Bool(true),
+		Term:proto.Uint64(1)}
+	tt.mockExchange.EXPECT().Append(gomock.Any(), gomock.Any()).Return(appendReply, nil).AnyTimes()
+
+	go func() {
+		tt.leader.Run()
+	} ()
+
+	// Test vote at higher term
+	request := &pb.VoteRequest{
+		Term:proto.Uint64(2),
+		CandidateId:proto.String(tt.peers[1]),
+		LastLogTerm:proto.Uint64(0),
+		LastLogIndex:proto.Uint64(0)}
+	op := NewRaftOperation(NewRaftRequest(request, nil, nil))
+	tt.nodeMaster.OpsQueue.Push(op)
+
+	reply := <- op.Callback
+	if reply.VoteReply == nil {
+		t.Fail()
+	}
+
+	time.Sleep(time.Second)
+	if !tt.leader.Stopped() {
+		t.Fail()
+	}
+}
+
+func TestLeaderRun3(t *testing.T) {
+	tt := &LeaderComponentTest{}
+	tt.setUp(t)
+	defer tt.tearDown(t)
+
+	// Leader gets evicted, put request should not success
+	appendReply := &pb.AppendReply{
+		Success:proto.Bool(false),
+		Term:proto.Uint64(2)}
+	tt.mockExchange.EXPECT().Append(gomock.Any(), gomock.Any()).Return(appendReply, nil).AnyTimes()
+
+	request := &pb.PutRequest{
+		Key:proto.String("abc"),
+		Value:[]byte("abc")}
+	op := NewRaftOperation(NewRaftRequest(nil, nil, request))
+	tt.nodeMaster.OpsQueue.Push(op)
+
+	go func() {
+		tt.leader.Run()
+	} ()
+
+	reply := <- op.Callback
+	if reply.PutReply == nil {
+		t.Fail()
+	}
+	if reply.PutReply.GetSuccess() {
+		t.Fail()
+	}
+
+	time.Sleep(time.Second)
+	if tt.nodeMaster.state != FOLLOWER {
+		t.Fail()
+	}
+	if !tt.leader.Stopped() {
 		t.Fail()
 	}
 }
