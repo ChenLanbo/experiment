@@ -4,8 +4,8 @@
 package test
 
 import (
-	protos "github.com/chenlanbo/experiment/paxos/protos"
 	gomock "github.com/golang/mock/gomock"
+	protos "github.com/chenlanbo/experiment/paxos/protos"
 )
 
 // Mock of MessageExchange interface
@@ -38,6 +38,17 @@ func (_m *MockMessageExchange) Append(_param0 string, _param1 *protos.AppendRequ
 
 func (_mr *_MockMessageExchangeRecorder) Append(arg0, arg1 interface{}) *gomock.Call {
 	return _mr.mock.ctrl.RecordCall(_mr.mock, "Append", arg0, arg1)
+}
+
+func (_m *MockMessageExchange) Put(_param0 string, _param1 *protos.PutRequest) (*protos.PutReply, error) {
+	ret := _m.ctrl.Call(_m, "Put", _param0, _param1)
+	ret0, _ := ret[0].(*protos.PutReply)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+func (_mr *_MockMessageExchangeRecorder) Put(arg0, arg1 interface{}) *gomock.Call {
+	return _mr.mock.ctrl.RecordCall(_mr.mock, "Put", arg0, arg1)
 }
 
 func (_m *MockMessageExchange) Vote(_param0 string, _param1 *protos.VoteRequest) (*protos.VoteReply, error) {
