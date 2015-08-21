@@ -5,114 +5,132 @@ import (
 	"github.com/golang/protobuf/proto"
 	"time"
 	"log"
+	"sync/atomic"
 )
 
 type Follower struct {
-	mu sync.Mutex
 	nodeMaster *NodeMaster
+	expire chan bool
 }
 
 func (follower *Follower) Run() {
-	follower.ProcessRequest()
+	processor := NewFollowerRequestProcessor(follower)
+	processor.Start()
+
+	expire := <- follower.expire
+	if expire {
+		// ignore
+	}
+
+	processor.Stop()
+	follower.nodeMaster.state = CANDIDATE
 }
 
-func (follower *Follower) ProcessRequest() {
-	go func() {
-		for follower.isFollower() {
-			follower.ProcessOneRequest()
+///////////////////////////////////////////////////////////////
+// FollowerRequestProcessor
+///////////////////////////////////////////////////////////////
+
+type FollowerRequestProcessor struct {
+	follower *Follower
+	stopped int32
+	mu sync.Mutex
+}
+
+func (processor *FollowerRequestProcessor) Start() {
+	go func () {
+		processor.mu.Lock()
+		defer processor.mu.Unlock()
+
+		for !processor.Stopped() {
+			processor.ProcessOnce()
 		}
 	} ()
 }
 
-func (follower *Follower) ProcessOneRequest() {
-	follower.mu.Lock()
-	defer follower.mu.Unlock()
-
-	op := follower.nodeMaster.OpsQueue.Pull(time.Millisecond * time.Duration(*queuePullTimeout))
-
+func (processor *FollowerRequestProcessor) ProcessOnce() {
+	queue := processor.follower.nodeMaster.OpsQueue
+	store := processor.follower.nodeMaster.store
+	success := false
+	op := queue.Pull(time.Millisecond * time.Duration(*queuePullTimeout))
 	if op == nil {
-		// Timeout elapses without receiving AppendEntries RPC from current leader or granting vote to candidate
-		follower.nodeMaster.state = CANDIDATE
+		// Notify follower
+		processor.follower.expire <- true
 		return
 	}
 
 	if op.Request.AppendRequest != nil {
 		reply := &pb.AppendReply{}
 
-		if follower.nodeMaster.store.CurrentTerm() > *op.Request.AppendRequest.Term {
-			reply.Success = proto.Bool(false)
-		} else {
-			follower.nodeMaster.store.SetCurrentTerm(*op.Request.AppendRequest.Term)
-			follower.nodeMaster.votedLeader = *op.Request.AppendRequest.LeaderId
+		if store.CurrentTerm() <= op.Request.AppendRequest.GetTerm() {
+			store.SetCurrentTerm(op.Request.AppendRequest.GetTerm())
+			processor.follower.nodeMaster.votedLeader = op.Request.AppendRequest.GetLeaderId()
 
-			if !follower.nodeMaster.store.Match(*op.Request.AppendRequest.PrevLogIndex,
-											    *op.Request.AppendRequest.PrevLogTerm) {
-				log.Println("Previous log index and term from leader doesn't match the follower's log")
-				reply.Success = proto.Bool(false)
-			} else {
-				tempLogs := make([]pb.Log, len(op.Request.AppendRequest.Logs))
+			if store.Match(op.Request.AppendRequest.GetPrevLogIndex(), op.Request.AppendRequest.GetPrevLogTerm()) {
+				tempLogs := make([]pb.Log, len(op.Request.AppendRequest.GetLogs()))
 				for i := 0; i < len(tempLogs); i++ {
-					tempLogs[i] = *op.Request.AppendRequest.Logs[i]
+					tempLogs[i] = *op.Request.AppendRequest.GetLogs()[i]
 				}
-				err := follower.nodeMaster.store.Append(*op.Request.AppendRequest.CommitIndex,
-												 	    tempLogs)
-				if err != nil {
-					reply.Success = proto.Bool(false)
-				} else {
-					reply.Success = proto.Bool(true)
+
+				err := store.Append(op.Request.AppendRequest.GetCommitIndex(), tempLogs)
+				if err == nil {
+					success = true
 				}
+			} else {
+				log.Println("Previous log index and term from leader doesn't match the follower's log")
 			}
 		}
 
-		reply.Term = proto.Uint64(follower.nodeMaster.store.CurrentTerm())
+		reply.Success = proto.Bool(success)
+		reply.Term = proto.Uint64(store.CurrentTerm())
 		op.Callback <- *NewRaftReply(nil, reply, nil)
 
 	} else if op.Request.VoteRequest != nil {
 		reply := &pb.VoteReply{}
 
-		if follower.nodeMaster.store.CurrentTerm() > *op.Request.VoteRequest.Term {
-			reply.Granted = proto.Bool(false)
-		} else if follower.nodeMaster.store.CurrentTerm() == *op.Request.VoteRequest.Term {
-			if follower.nodeMaster.votedLeader == "" || follower.nodeMaster.votedLeader != *op.Request.VoteRequest.CandidateId {
-				// i have voted another guy in this term
-				reply.Granted = proto.Bool(false)
-			} else {
-				// i have voted the same candidate, and check log up-to-date again
-				if follower.nodeMaster.store.Match(*op.Request.VoteRequest.LastLogIndex,
-											       *op.Request.VoteRequest.LastLogTerm) {
-					reply.Granted = proto.Bool(true)
-				} else {
-					reply.Granted = proto.Bool(false)
-				}
+		if store.CurrentTerm() == op.Request.VoteRequest.GetTerm() {
+			if processor.follower.nodeMaster.votedLeader != "" &&
+			   processor.follower.nodeMaster.votedLeader == op.Request.VoteRequest.GetCandidateId() &&
+			   store.Match(op.Request.VoteRequest.GetLastLogIndex(), op.Request.VoteRequest.GetLastLogTerm()) {
+				success = true
 			}
-		} else {
-			if follower.nodeMaster.store.OtherLogUpToDate(*op.Request.VoteRequest.LastLogIndex,
-														  *op.Request.VoteRequest.LastLogTerm) {
-				// candidate's log is at least as up-to-date as receiver’s log
-				follower.nodeMaster.store.SetCurrentTerm(*op.Request.VoteRequest.Term)
-				follower.nodeMaster.votedLeader = *op.Request.VoteRequest.CandidateId
-				reply.Granted = proto.Bool(true)
-			} else {
-				reply.Granted = proto.Bool(false)
+		} else if store.CurrentTerm() < op.Request.VoteRequest.GetTerm() {
+			if store.Match(op.Request.VoteRequest.GetLastLogIndex(), op.Request.VoteRequest.GetLastLogTerm()) {
+				success = true
 			}
 		}
 
-		reply.Term = proto.Uint64(follower.nodeMaster.store.CurrentTerm())
+		if success {
+			store.SetCurrentTerm(op.Request.VoteRequest.GetTerm())
+		}
+
+		reply.Granted = proto.Bool(success)
+		reply.Term = proto.Uint64(store.CurrentTerm())
 		op.Callback <- *NewRaftReply(reply, nil, nil)
 
 	} else if op.Request.PutRequest != nil {
 		reply := &pb.PutReply{
-			Success:proto.Bool(false),
-			LeaderId:proto.String(follower.nodeMaster.votedLeader)}
+			Success:proto.Bool(success),
+			LeaderId:proto.String(processor.follower.nodeMaster.votedLeader)}
 		op.Callback <- *NewRaftReply(nil, nil, reply)
 	}
 }
 
-func (follower *Follower) isFollower() bool {
-	follower.mu.Lock()
-	defer follower.mu.Unlock()
+func (processor *FollowerRequestProcessor) Stop() {
+	atomic.StoreInt32(&processor.stopped, 1)
+}
 
-	return follower.nodeMaster.state == FOLLOWER
+func (processor *FollowerRequestProcessor) Stopped() bool {
+	return atomic.LoadInt32(&processor.stopped) == 1
+}
+
+///////////////////////////////////////////////////////////////
+// Constructors
+///////////////////////////////////////////////////////////////
+
+func NewFollowerRequestProcessor(follower *Follower) *FollowerRequestProcessor {
+	processor := &FollowerRequestProcessor{}
+	processor.follower = follower
+	return processor
 }
 
 func NewFollower(nodeMaster *NodeMaster) (*Follower) {
@@ -122,6 +140,7 @@ func NewFollower(nodeMaster *NodeMaster) (*Follower) {
 
 	follower := &Follower{}
 	follower.nodeMaster = nodeMaster
+	follower.expire = make(chan bool, 1)
 
 	return follower
 }

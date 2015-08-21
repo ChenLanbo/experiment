@@ -28,6 +28,7 @@ func (candidate *Candidate) Run() {
 
 	for {
 		candidate.nodeMaster.store.IncrementCurrentTerm()
+		candidate.nodeMaster.votedLeader = ""
 		newTerm := candidate.nodeMaster.store.CurrentTerm()
 		l := candidate.nodeMaster.store.Read(candidate.nodeMaster.store.LatestIndex())
 
@@ -134,6 +135,7 @@ func (processor *CandidateRequestProcessor) ProcessRequestsAtTerm(newTerm uint64
 ///////////////////////////////////////////////////////////////
 // CandidateVoter
 ///////////////////////////////////////////////////////////////
+
 type CandidateVoter struct {
 	candidate *Candidate
 	stopped int32

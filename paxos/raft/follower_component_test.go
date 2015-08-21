@@ -6,6 +6,7 @@ import (
 	"github.com/golang/protobuf/proto"
 	"github.com/golang/mock/gomock"
 	"github.com/chenlanbo/experiment/paxos/raft/test"
+	"time"
 )
 
 type FollowerComponentTest struct {
@@ -17,6 +18,7 @@ type FollowerComponentTest struct {
 
 	nodeMaster *NodeMaster
 	follower   *Follower
+	processor  *FollowerRequestProcessor
 }
 
 func (tt *FollowerComponentTest) setUp(t *testing.T) {
@@ -28,9 +30,11 @@ func (tt *FollowerComponentTest) setUp(t *testing.T) {
 
 	tt.nodeMaster = NewNodeMaster(tt.mockExchange, tt.peers, tt.me)
 	tt.follower = NewFollower(tt.nodeMaster)
+	tt.processor = NewFollowerRequestProcessor(tt.follower)
 }
 
 func (tt *FollowerComponentTest) tearDown(t *testing.T) {
+	tt.processor.Stop()
 	tt.nodeMaster.Stop()
 	tt.follower = nil
 	tt.nodeMaster = nil
@@ -45,10 +49,13 @@ func TestTimeoutWithNoRequests(t *testing.T) {
 	tt.setUp(t)
 	defer tt.tearDown(t)
 
-	tt.follower.ProcessOneRequest()
+	tt.processor.ProcessOnce()
 
-	if tt.nodeMaster.state != CANDIDATE {
-		t.Fatal("State is not CANDIDATE but", tt.nodeMaster.state)
+	select {
+	case <- tt.follower.expire:
+		// Success
+		t.Log("Success")
+	case <- time.After(time.Second):
 		t.Fail()
 	}
 }
@@ -63,14 +70,10 @@ func TestVote(t *testing.T) {
 		CandidateId:proto.String(tt.peers[1]),
 		LastLogTerm:proto.Uint64(0),
 		LastLogIndex:proto.Uint64(0)}
-
 	op := NewRaftOperation(NewRaftRequest(voteRequest1, nil, nil))
 	tt.nodeMaster.OpsQueue.Push(op)
 
-	tt.follower.ProcessOneRequest()
-	if tt.nodeMaster.state != FOLLOWER {
-		t.Fail()
-	}
+	tt.processor.ProcessOnce()
 	if tt.nodeMaster.store.CurrentTerm() != 1 {
 		t.Fail()
 	}
@@ -80,7 +83,7 @@ func TestVote(t *testing.T) {
 		t.Fatal("Empty vote reply")
 		t.Fail()
 	}
-	if !*reply.VoteReply.Granted {
+	if !reply.VoteReply.GetGranted() {
 		t.Fatal("Vote not granted")
 		t.Fail()
 	}
@@ -92,21 +95,16 @@ func TestVote(t *testing.T) {
 		CandidateId:proto.String(tt.peers[2]),
 		LastLogTerm:proto.Uint64(0),
 		LastLogIndex:proto.Uint64(0)}
-
 	op = NewRaftOperation(NewRaftRequest(voteRequest2, nil, nil))
 	tt.nodeMaster.OpsQueue.Push(op)
 
-	tt.follower.ProcessOneRequest()
-	if tt.nodeMaster.state != FOLLOWER {
-		t.Fail()
-	}
-
+	tt.processor.ProcessOnce()
 	reply = <- op.Callback
 	if reply.VoteReply == nil {
 		t.Fatal("Empty vote reply")
 		t.Fail()
 	}
-	if *reply.VoteReply.Granted {
+	if reply.VoteReply.GetGranted() {
 		t.Fatal("Vote should not be granted")
 		t.Fail()
 	}
@@ -131,7 +129,7 @@ func TestAppend(t *testing.T) {
 	op := NewRaftOperation(NewRaftRequest(nil, appendRequest, nil))
 	tt.nodeMaster.OpsQueue.Push(op)
 
-	tt.follower.ProcessOneRequest()
+	tt.processor.ProcessOnce()
 	if tt.nodeMaster.store.CurrentTerm() != 1 {
 		t.Fatal("Follower's term not advanced")
 		t.Fail()
@@ -146,7 +144,7 @@ func TestAppend(t *testing.T) {
 		t.Fatal("Empty append reply")
 		t.Fail()
 	}
-	if !*reply.AppendReply.Success {
+	if !reply.AppendReply.GetSuccess() {
 		t.Fatal("Append failed")
 		t.Fail()
 	}
@@ -179,7 +177,7 @@ func TestReplicateFromPreviousLog(t *testing.T) {
 	op1 := NewRaftOperation(NewRaftRequest(nil, appendRequest1, nil))
 	tt.nodeMaster.OpsQueue.Push(op1)
 
-	tt.follower.ProcessOneRequest()
+	tt.processor.ProcessOnce()
 	reply := <- op1.Callback
 	if *reply.AppendReply.Success {
 		t.Fail()
@@ -199,16 +197,16 @@ func TestReplicateFromPreviousLog(t *testing.T) {
 	op2 := NewRaftOperation(NewRaftRequest(nil, appendRequest2, nil))
 	tt.nodeMaster.OpsQueue.Push(op2)
 
-	tt.follower.ProcessOneRequest()
+	tt.processor.ProcessOnce()
 	reply = <- op2.Callback
-	if !*reply.AppendReply.Success {
+	if !reply.AppendReply.GetSuccess() {
 		t.Fail()
 	}
 	if tt.nodeMaster.store.LatestIndex() != uint64(n + 1) {
 		t.Fail()
 	}
 	l := tt.nodeMaster.store.Read(uint64(n))
-	if *l.Term != newTerm || *l.LogId != uint64(n) {
+	if l.GetTerm() != newTerm || l.GetLogId() != uint64(n) {
 		t.Fail()
 	}
 }
