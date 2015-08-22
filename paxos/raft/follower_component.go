@@ -69,7 +69,10 @@ func (processor *FollowerRequestProcessor) ProcessOnce() {
 	op := queue.Pull(time.Millisecond * time.Duration(*queuePullTimeout))
 	if op == nil {
 		// Notify follower
-		log.Println("Not hear from leader")
+		log.Println(
+			processor.follower.nodeMaster.MyEndpoint(),
+			"not hear from leader",
+			processor.follower.nodeMaster.votedLeader)
 		processor.follower.expire <- true
 		processor.Stop()
 		return

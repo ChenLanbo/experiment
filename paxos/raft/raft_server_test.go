@@ -2,10 +2,10 @@ package raft
 import (
 	"time"
 	"testing"
-	"google.golang.org/grpc"
 	pb "github.com/chenlanbo/experiment/paxos/protos"
-	"golang.org/x/net/context"
 	"github.com/golang/protobuf/proto"
+	"github.com/chenlanbo/experiment/paxos/raft/rpc"
+	"errors"
 )
 
 var (
@@ -43,26 +43,62 @@ func TestRaftServerOneReplica(t *testing.T) {
 	for _, raft := range tt.servers {
 		raft.Start()
 	}
-
 	time.Sleep(time.Second * 5)
 
-	c, err := grpc.Dial(peers2[0])
-	if err != nil {
-		t.Log(err)
-		t.Fail()
-	}
-	defer c.Close()
+	exchange := rpc.NewMessageExchange()
+	request := &pb.PutRequest{
+		Key:proto.String("abc"), Value:[]byte("abc")}
 
-	cli := pb.NewRaftClient(c)
-	reply, err1 := cli.Put(context.Background(), &pb.PutRequest{
-		Key:proto.String("abc"), Value:[]byte("abc")})
-	if err1 != nil {
-		t.Logf("Server returns error %s", err1)
-		t.Fail()
-	}
-
+	reply, _ := exchange.Put(peers2[0], request)
 	if !reply.GetSuccess() {
 		t.Logf("Put not succeeded")
 		t.Fail()
 	}
+}
+
+func TestRaftServerThreeReplica(t *testing.T) {
+	tt := &RaftServerTest{}
+	tt.setUp(t, peers1)
+	defer tt.tearDown(t)
+
+	for _, raft := range tt.servers {
+		raft.Start()
+	}
+
+	time.Sleep(time.Second * 5)
+
+	err := sendPutToReplicas(peers1)
+	if err != nil {
+		t.Fail()
+	}
+	
+	// Check all replicas get the put
+	for _, raft := range tt.servers {
+		if raft.nodeMaster.store.LatestIndex() < 1 {
+			t.Fail()
+		}
+	}
+}
+
+func sendPutToReplicas(peers []string) error {
+	exchange := rpc.NewMessageExchange()
+	request := &pb.PutRequest{
+		Key:proto.String("abc"), Value:[]byte("abc")}
+	tries := 0
+	to := peers[0]
+
+	for ; tries < 5; tries++ {
+		reply, _ := exchange.Put(to, request)
+		if reply.GetSuccess() {
+			break
+		} else {
+			to = reply.GetLeaderId()
+		}
+	}
+
+	if tries == 5 {
+		return errors.New("Fail to put")
+	}
+
+	return nil
 }
