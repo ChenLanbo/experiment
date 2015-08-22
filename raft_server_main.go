@@ -1,18 +1,33 @@
 package main
 
-//import "net"
+import "golang.org/x/net/context"
+import "time"
 //import "net/rpc"
 
 //import "github.com/chenlanbo/experiment/paxos"
 
-func main() {
-  m := make(map[int]int)
-  m[1] = 1
-  m[2] = 2
+func XX() {
+  ctx, cancel := context.WithCancel(context.Background())
+  defer cancel()
 
-  for k, _ := range m {
-    delete(m, k)
+  go func() {
+    time.Sleep(time.Second * 2)
+    print("Go routine done")
+    cancel()
+  } ()
+
+  select {
+  case <-ctx.Done():
+    print("Child done")
+    print(ctx.Err());
   }
 
-  println(len(m))
+}
+
+func main() {
+
+  x := make(chan bool, 0)
+  // close(x)
+  y := <- x
+  println(y)
 }

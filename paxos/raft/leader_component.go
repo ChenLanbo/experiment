@@ -183,13 +183,12 @@ func (replicator *LogReplicator) ReplicateOnce() bool {
 
 	reply, err := replicator.leader.nodeMaster.Exchange.Append(replicator.peer, request)
 	if err != nil {
-		log.Fatal("Failed to replicate logs to", replicator.peer)
+		log.Println(replicator.leader.nodeMaster.MyEndpoint(), "failed to replicate logs to", replicator.peer)
 	} else {
 		if reply.GetSuccess() {
 			if len(logsToReplicate) > 0 {
 				replicator.replicateIndex++
 				replicator.prevLog = newLog
-				// log.Println("Replicator", replicator.peer, ":", replicator.replicateIndex)
 			}
 		} else {
 			if reply.GetTerm() > store.CurrentTerm() {

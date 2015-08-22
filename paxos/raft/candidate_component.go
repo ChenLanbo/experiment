@@ -58,6 +58,7 @@ func (candidate *Candidate) Run() {
 				voter.Stop()
 				return
 			} else {
+				log.Println(candidate.nodeMaster.MyEndpoint(), "no leader elected at term", newTerm)
 				time.Sleep(time.Millisecond * time.Duration(rand.Int31n(int32(*sleepTimeout)) + 1))
 				processor.Stop()
 				voter.Stop()
@@ -193,17 +194,21 @@ func (voter *CandidateVoter) VoteSelfAtTerm(newTerm, lastLogTerm, lastLogIndex u
 				log.Println(err)
 				continue
 			}
-			//log.Println("Send vote to", peer, reply.GetGranted())
 
 			if reply.GetGranted() {
 				log.Println("Granted from", peer)
 				numSuccess++
 			} else {
-				log.Println("Not granted from", peer)
+				log.Println(
+					voter.candidate.nodeMaster.MyEndpoint(),
+					"not granted from", peer,
+					"my term", newTerm,
+					"reply term", reply.GetTerm())
 				if newTerm < reply.GetTerm() {
 					// RPC request or response contains term T > currentTerm.
 					// Signal Candidate to become follower to set new term
 					voter.candidate.newTermChan <- reply.GetTerm()
+					return
 				}
 			}
 

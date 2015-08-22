@@ -52,10 +52,10 @@ func TestTimeoutWithNoRequests(t *testing.T) {
 	tt.processor.ProcessOnce()
 
 	select {
-	case <- tt.follower.expire:
+	case <- tt.follower.expireCtx.Done():
 		// Success
-		t.Log("Success")
-	case <- time.After(time.Second):
+		t.Log("Timeout expected\n")
+	case <- time.After(time.Second * 2):
 		t.Fail()
 	}
 }

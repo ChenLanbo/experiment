@@ -6,12 +6,18 @@ import (
 	"time"
 	"log"
 	"sync/atomic"
+	"golang.org/x/net/context"
 )
 
 type Follower struct {
 	nodeMaster *NodeMaster
-	expire chan bool
-	stopped int32
+
+	expireCtx  context.Context
+	expireCancal context.CancelFunc
+
+	stopped    int32
+	stopCtx    context.Context
+	stopCancel context.CancelFunc
 }
 
 func (follower *Follower) Run() {
@@ -21,20 +27,20 @@ func (follower *Follower) Run() {
 	processor := NewFollowerRequestProcessor(follower)
 	processor.Start()
 
-	expire := <- follower.expire
-	if expire {
-		// ignore
+
+	select {
+	case <-follower.stopCtx.Done():
+		processor.Stop()
+	case <-follower.expireCtx.Done():
+		processor.Stop()
+		follower.nodeMaster.state = CANDIDATE
+		log.Println("Change to candidate")
 	}
-
-	processor.Stop()
-
-	follower.nodeMaster.state = CANDIDATE
-	log.Println("Change to candidate")
 }
 
 func (follower *Follower) Stop() {
 	atomic.StoreInt32(&follower.stopped, 1)
-	follower.expire <- false
+	follower.stopCancel()
 }
 
 func (follower *Follower) Stopped() bool {
@@ -73,7 +79,7 @@ func (processor *FollowerRequestProcessor) ProcessOnce() {
 			processor.follower.nodeMaster.MyEndpoint(),
 			"not hear from leader",
 			processor.follower.nodeMaster.votedLeader)
-		processor.follower.expire <- true
+		processor.follower.expireCancal()
 		processor.Stop()
 		return
 	}
@@ -160,8 +166,11 @@ func NewFollower(nodeMaster *NodeMaster) (*Follower) {
 
 	follower := &Follower{}
 	follower.nodeMaster = nodeMaster
-	follower.expire = make(chan bool, 2)
+
 	follower.stopped = 0
+	follower.stopCtx, follower.stopCancel = context.WithCancel(context.Background())
+
+	follower.expireCtx, follower.expireCancal = context.WithCancel(context.Background())
 
 	return follower
 }

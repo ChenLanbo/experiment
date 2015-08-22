@@ -6,6 +6,7 @@ import (
 	"github.com/golang/protobuf/proto"
 	"github.com/chenlanbo/experiment/paxos/raft/rpc"
 	"errors"
+	"math/rand"
 )
 
 var (
@@ -80,6 +81,85 @@ func TestRaftServerThreeReplica(t *testing.T) {
 	}
 }
 
+func TestRaftServerThreeReplicaWithOneDown(t *testing.T) {
+	tt := &RaftServerTest{}
+	tt.setUp(t, peers1)
+	defer tt.tearDown(t)
+
+	// The third node doesn't start
+	tt.servers[0].Start()
+	tt.servers[1].Start()
+
+	time.Sleep(time.Second * 5)
+
+	err := sendPutToReplicas(peers1)
+	if err != nil {
+		t.Fail()
+	}
+
+	if tt.servers[0].nodeMaster.store.LatestIndex() < 1 {
+		t.Fail()
+	}
+	if tt.servers[0].nodeMaster.store.LatestIndex() < 1 {
+		t.Fail()
+	}
+
+	// The third node comes back again
+	tt.servers[2].Start()
+	time.Sleep(time.Second * 5)
+
+	if tt.servers[2].nodeMaster.store.LatestIndex() < 1 {
+		t.Fail()
+	}
+}
+
+func TestRaftServerThreeReplicaWithLeaderFailOver(t *testing.T)  {
+	tt := &RaftServerTest{}
+	tt.setUp(t, peers1)
+	defer tt.tearDown(t)
+
+	for _, raft := range tt.servers {
+		raft.Start()
+	}
+	time.Sleep(time.Second * 5)
+
+	if sendPutToReplicas(peers1) != nil {
+		t.Fail()
+	}
+
+	curLeader := -1
+	for id, raft := range tt.servers {
+		if raft.nodeMaster.state == LEADER {
+			curLeader = id
+			raft.Stop()
+		}
+	}
+	if curLeader == -1 {
+		t.Fail()
+	}
+
+	time.Sleep(time.Second * 5)
+	tempPeers := make([]string, 0)
+	for id, _ := range peers1 {
+		if id != curLeader {
+			tempPeers = append(tempPeers, peers1[id])
+		}
+	}
+	if sendPutToReplicas(tempPeers) != nil {
+		t.Fail()
+	}
+
+	for id, raft := range tt.servers {
+		if id == curLeader {
+			continue
+		}
+
+		if raft.nodeMaster.store.LatestIndex() != 2 {
+			t.Fail()
+		}
+	}
+}
+
 func sendPutToReplicas(peers []string) error {
 	exchange := rpc.NewMessageExchange()
 	request := &pb.PutRequest{
@@ -88,11 +168,17 @@ func sendPutToReplicas(peers []string) error {
 	to := peers[0]
 
 	for ; tries < 5; tries++ {
-		reply, _ := exchange.Put(to, request)
+		reply, err := exchange.Put(to, request)
+		if err != nil {
+			continue
+		}
 		if reply.GetSuccess() {
 			break
 		} else {
 			to = reply.GetLeaderId()
+			if to == "" {
+				to = peers[rand.Intn(len(peers))]
+			}
 		}
 	}
 

@@ -4,6 +4,7 @@ import (
 	"github.com/chenlanbo/experiment/paxos/raft/rpc"
 	"log"
 	"sync/atomic"
+	"golang.org/x/net/context"
 )
 
 type NodeState int
@@ -28,6 +29,9 @@ type NodeMaster struct {
 
 	stopped int32
 	stopChan chan bool
+
+	stopCtx    context.Context
+	stopCancel context.CancelFunc
 }
 
 func (nodeMaster *NodeMaster) MyEndpoint() string {
@@ -65,8 +69,9 @@ func (nodeMaster *NodeMaster) Start() {
 
 func (nodeMaster *NodeMaster) Stop() {
 	atomic.StoreInt32(&nodeMaster.stopped, 1)
-	nodeMaster.OpsQueue.Close()
-	nodeMaster.stopChan <- true
+	nodeMaster.stopCancel()
+	//nodeMaster.OpsQueue.Close()
+	//nodeMaster.stopChan <- true
 }
 
 func (nodeMaster *NodeMaster) Stopped() bool {
@@ -75,62 +80,62 @@ func (nodeMaster *NodeMaster) Stopped() bool {
 
 func (nodeMaster *NodeMaster) runLeader() {
 	leader := NewLeader(nodeMaster)
-	notify := make(chan bool, 1)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	go func () {
 		leader.Run()
 		log.Println(nodeMaster.MyEndpoint(), "stop as a leader")
-		notify <- true
+		cancel()
 	} ()
 
 	select {
-	case <-notify:
+	case <-ctx.Done():
 		break
 	case <-nodeMaster.stopChan:
 		break
 	}
 	leader.Stop()
-	close(notify)
 }
 
 func (nodeMaster *NodeMaster) runFollower() {
 	follower := NewFollower(nodeMaster)
-	notify := make(chan bool, 1)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	go func () {
 		follower.Run()
 		log.Println(nodeMaster.MyEndpoint(), "stop as a follower")
-		notify <- true
+		cancel()
 	} ()
 
 	select {
-	case <-notify:
+	case <-ctx.Done():
 		break
 	case <-nodeMaster.stopChan:
 		break
 	}
 	follower.Stop()
-	close(notify)
 }
 
 func (nodeMaster *NodeMaster) runCandidate() {
 	candidate := NewCandidate(nodeMaster)
-	notify := make(chan bool, 1)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	go func () {
 		candidate.Run()
 		log.Println(nodeMaster.MyEndpoint(), "stop as a candidate")
-		notify <- true
+		cancel()
 	} ()
 
 	select {
-	case <-notify:
+	case <-ctx.Done():
 		break
 	case <-nodeMaster.stopChan:
 		break
 	}
 	candidate.Stop()
-	close(notify)
 }
 
 func NewNodeMaster(exchange rpc.MessageExchange, peers []string, me int) (*NodeMaster) {
@@ -149,6 +154,17 @@ func NewNodeMaster(exchange rpc.MessageExchange, peers []string, me int) (*NodeM
 
 	nodeMaster.stopped = 0
 	nodeMaster.stopChan = make(chan bool, 4)
+
+	// Register clean up goroutine
+	nodeMaster.stopCtx, nodeMaster.stopCancel = context.WithCancel(context.Background())
+	go func() {
+		select {
+		case <-nodeMaster.stopCtx.Done():
+			nodeMaster.OpsQueue.Close()
+			nodeMaster.stopChan <- true
+			close(nodeMaster.stopChan)
+		}
+	} ()
 
 	return nodeMaster
 }

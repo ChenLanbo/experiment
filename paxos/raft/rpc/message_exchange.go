@@ -5,6 +5,7 @@ import (
 	"google.golang.org/grpc"
 	"log"
 	"golang.org/x/net/context"
+	"time"
 )
 
 type MessageExchange interface {
@@ -19,7 +20,7 @@ type MessageExchange interface {
 type MessageExchangeImpl struct {}
 
 func (hub MessageExchangeImpl) Vote(peer string, request *pb.VoteRequest) (*pb.VoteReply, error) {
-	conn, err := grpc.Dial(peer)
+	conn, err := grpc.Dial(peer, grpc.WithTimeout(time.Second * 2))
 	if err != nil {
 		log.Println(err)
 		return nil, err
@@ -27,7 +28,9 @@ func (hub MessageExchangeImpl) Vote(peer string, request *pb.VoteRequest) (*pb.V
 	defer conn.Close()
 
 	c := pb.NewRaftClient(conn)
-	reply, err1 := c.Vote(context.Background(), request)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond * 500)
+	defer cancel()
+	reply, err1 := c.Vote(ctx, request)
 	if err1 != nil {
 		log.Println(err1)
 		return nil, err1
@@ -37,7 +40,7 @@ func (hub MessageExchangeImpl) Vote(peer string, request *pb.VoteRequest) (*pb.V
 }
 
 func (hub MessageExchangeImpl) Append(peer string, request *pb.AppendRequest) (*pb.AppendReply, error) {
-	conn, err := grpc.Dial(peer)
+	conn, err := grpc.Dial(peer, grpc.WithTimeout(time.Second * 2))
 	if err != nil {
 		log.Println(err)
 		return nil, err
@@ -45,9 +48,11 @@ func (hub MessageExchangeImpl) Append(peer string, request *pb.AppendRequest) (*
 	defer conn.Close()
 
 	c := pb.NewRaftClient(conn)
-	reply, err1 := c.Append(context.Background(), request)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond * 500)
+	defer cancel()
+	reply, err1 := c.Append(ctx, request)
 	if err1 != nil {
-		log.Println(err)
+		log.Println(err1)
 		return nil, err1
 	}
 
@@ -55,7 +60,7 @@ func (hub MessageExchangeImpl) Append(peer string, request *pb.AppendRequest) (*
 }
 
 func (hub MessageExchangeImpl) Put(peer string, request *pb.PutRequest) (*pb.PutReply, error) {
-	conn, err := grpc.Dial(peer)
+	conn, err := grpc.Dial(peer, grpc.WithTimeout(time.Second * 2))
 	if err != nil {
 		log.Println(err)
 		return nil, err
@@ -63,9 +68,11 @@ func (hub MessageExchangeImpl) Put(peer string, request *pb.PutRequest) (*pb.Put
 	defer conn.Close()
 
 	c := pb.NewRaftClient(conn)
-	reply, err1 := c.Put(context.Background(), request)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond * 500)
+	defer cancel()
+	reply, err1 := c.Put(ctx, request)
 	if err1 != nil {
-		log.Println(err)
+		log.Println(err1)
 		return nil, err1
 	}
 

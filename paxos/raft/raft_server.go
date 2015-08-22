@@ -51,6 +51,10 @@ func (raft *RaftServer) Stopped() bool {
 func (raft *RaftServer) Vote(ctx context.Context, request *pb.VoteRequest) (*pb.VoteReply, error) {
     op := NewRaftOperation(NewRaftRequest(request, nil, nil))
     defer close(op.Callback)
+    if raft.Stopped() {
+        return nil, errors.New("Server stopped")
+    }
+
     raft.nodeMaster.OpsQueue.Push(op)
 
     reply := <- op.Callback
@@ -63,6 +67,10 @@ func (raft *RaftServer) Vote(ctx context.Context, request *pb.VoteRequest) (*pb.
 func (raft *RaftServer) Append(ctx context.Context, request *pb.AppendRequest) (*pb.AppendReply, error) {
     op := NewRaftOperation(NewRaftRequest(nil, request, nil))
     defer close(op.Callback)
+    if raft.Stopped() {
+        return nil, errors.New("Server stopped")
+    }
+
     raft.nodeMaster.OpsQueue.Push(op)
 
     reply := <- op.Callback
@@ -75,6 +83,10 @@ func (raft *RaftServer) Append(ctx context.Context, request *pb.AppendRequest) (
 func (raft *RaftServer) Put(ctx context.Context, request *pb.PutRequest) (*pb.PutReply, error) {
     op := NewRaftOperation(NewRaftRequest(nil, nil, request))
     defer close(op.Callback)
+    if raft.Stopped() {
+        return nil, errors.New("Server stopped")
+    }
+
     raft.nodeMaster.OpsQueue.Push(op)
 
     reply := <- op.Callback
