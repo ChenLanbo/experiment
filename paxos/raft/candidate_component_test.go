@@ -8,6 +8,7 @@ import (
 	"time"
 )
 
+
 type CandidateComponentTest struct {
 	mockCtrl *gomock.Controller
 	mockExchange *test.MockMessageExchange
@@ -19,11 +20,11 @@ type CandidateComponentTest struct {
 	candidate *Candidate
 }
 
-func (tt *CandidateComponentTest) setUp(t *testing.T) {
+func (tt *CandidateComponentTest) setUp(t *testing.T, peers []string) {
 	tt.mockCtrl = gomock.NewController(t)
 	tt.mockExchange = test.NewMockMessageExchange(tt.mockCtrl)
 
-	tt.peers = []string{"localhost:30001", "localhost:30002", "localhost:30003"}
+	tt.peers = peers
 	tt.me = 0
 
 	tt.nodeMaster = NewNodeMaster(tt.mockExchange, tt.peers, tt.me)
@@ -43,7 +44,7 @@ func (tt *CandidateComponentTest) tearDown(t *testing.T) {
 
 func TestCandidateVoteBothPeersGranted(t *testing.T) {
 	tt := &CandidateComponentTest{}
-	tt.setUp(t)
+	tt.setUp(t, peers1)
 	defer tt.tearDown(t)
 
 	reply := &pb.VoteReply{
@@ -70,7 +71,7 @@ func TestCandidateVoteBothPeersGranted(t *testing.T) {
 
 func TestCandidateVoteOnlyOnePeerGranted(t *testing.T) {
 	tt := &CandidateComponentTest{}
-	tt.setUp(t)
+	tt.setUp(t, peers1)
 	defer tt.tearDown(t)
 
 	reply1 := &pb.VoteReply{
@@ -102,7 +103,7 @@ func TestCandidateVoteOnlyOnePeerGranted(t *testing.T) {
 
 func TestCandidateVoteNoPeersGranted(t *testing.T) {
 	tt := &CandidateComponentTest{}
-	tt.setUp(t)
+	tt.setUp(t, peers1)
 	defer tt.tearDown(t)
 
 	reply := &pb.VoteReply{
@@ -130,7 +131,7 @@ func TestCandidateVoteNoPeersGranted(t *testing.T) {
 
 func TestCandidateProcessPutRequest(t *testing.T) {
 	tt := &CandidateComponentTest{}
-	tt.setUp(t)
+	tt.setUp(t, peers1)
 	defer tt.tearDown(t)
 
 	tt.nodeMaster.store.IncrementCurrentTerm()
@@ -158,7 +159,7 @@ func TestCandidateProcessPutRequest(t *testing.T) {
 
 func TestCandidateProcessVoteRequest(t *testing.T) {
 	tt := &CandidateComponentTest{}
-	tt.setUp(t)
+	tt.setUp(t, peers1)
 	defer tt.tearDown(t)
 
 	tt.nodeMaster.store.IncrementCurrentTerm()
@@ -205,7 +206,7 @@ func TestCandidateProcessVoteRequest(t *testing.T) {
 
 func TestCandidateProcessAppendRequest(t *testing.T) {
 	tt := &CandidateComponentTest{}
-	tt.setUp(t)
+	tt.setUp(t, peers1)
 	defer tt.tearDown(t)
 
 	tt.nodeMaster.store.IncrementCurrentTerm()
@@ -240,13 +241,13 @@ func TestCandidateProcessAppendRequest(t *testing.T) {
 
 func TestCandidateRun(t *testing.T) {
 	tt := &CandidateComponentTest{}
-	tt.setUp(t)
+	tt.setUp(t, peers1)
 	defer tt.tearDown(t)
 
 	reply := &pb.VoteReply{
 		Granted:proto.Bool(true),
 		Term:proto.Uint64(0)}
-	tt.mockExchange.EXPECT().Vote(gomock.Any(), gomock.Any()).Return(reply, nil)
+	tt.mockExchange.EXPECT().Vote(gomock.Any(), gomock.Any()).Return(reply, nil).AnyTimes()
 
 	tt.candidate.Run()
 
@@ -257,7 +258,7 @@ func TestCandidateRun(t *testing.T) {
 
 func TestCandidateRun2(t *testing.T) {
 	tt := &CandidateComponentTest{}
-	tt.setUp(t)
+	tt.setUp(t, peers1)
 	defer tt.tearDown(t)
 
 	reply1 := &pb.VoteReply{
@@ -272,6 +273,17 @@ func TestCandidateRun2(t *testing.T) {
 
 	tt.candidate.Run()
 	t.Log(tt.nodeMaster.store.CurrentTerm())
+	if tt.nodeMaster.state != LEADER {
+		t.Fail()
+	}
+}
+
+func TestSingleReplica(t *testing.T) {
+	tt := &CandidateComponentTest{}
+	tt.setUp(t, peers2)
+	defer tt.tearDown(t)
+
+	tt.candidate.Run()
 	if tt.nodeMaster.state != LEADER {
 		t.Fail()
 	}

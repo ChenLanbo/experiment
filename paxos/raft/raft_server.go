@@ -2,35 +2,105 @@ package raft
 import (
     "golang.org/x/net/context"
     pb "github.com/chenlanbo/experiment/paxos/protos"
-    "github.com/golang/protobuf/proto"
+    "errors"
+    "github.com/chenlanbo/experiment/paxos/raft/rpc"
+    "net"
+    "log"
+    "google.golang.org/grpc"
+    "sync/atomic"
+    "sync"
 )
 
 // mockgen github.com/chenlanbo/experiment/paxos/raft RaftServer > mock_raft/mock_raft_server.go
-type RaftServer interface {
-
-    Vote(ctx context.Context, request *pb.VoteRequest) (*pb.VoteReply, error)
-
-    Append(ctx context.Context, request *pb.AppendRequest) (*pb.AppendReply, error)
-
-    Put(ctx context.Context, request *pb.PutRequest) (*pb.PutReply, error)
+type RaftServer struct {
+    nodeMaster *NodeMaster
+    stopped int32
+    l net.Listener
+    mu sync.Mutex
 }
 
-type RaftServerImpl struct {}
+func (raft *RaftServer) Start() {
+    go func () {
+        raft.mu.Lock()
+        defer raft.mu.Unlock()
 
-func (raft *RaftServerImpl) Vote(ctx context.Context, request *pb.VoteRequest) (*pb.VoteReply, error) {
-    reply := &pb.VoteReply{}
-    reply.Term = proto.Uint64(1)
-    reply.Granted = proto.Bool(false)
-    return reply, nil
+        if raft.Stopped() {
+            return
+        }
+
+        log.Println(raft.nodeMaster.MyEndpoint(), "start serving requests")
+        s := grpc.NewServer()
+        pb.RegisterRaftServer(s, raft)
+        s.Serve(raft.l)
+        s.Stop()
+    } ()
+
+    raft.nodeMaster.Start()
 }
 
-func (raft *RaftServerImpl) Append(ctx context.Context, request *pb.AppendRequest) (*pb.AppendReply, error) {
-    return nil, nil
+func (raft *RaftServer) Stop() {
+    atomic.StoreInt32(&raft.stopped, 1)
+    raft.l.Close()
+    raft.nodeMaster.Stop()
 }
 
-func (raft *RaftServerImpl) Put(ctx context.Context, request *pb.PutRequest) (*pb.PutReply, error) {
-    reply := &pb.PutReply{}
-    reply.Success = proto.Bool(true)
-    reply.LeaderId = proto.String("abc")
-    return reply, nil
+func (raft *RaftServer) Stopped() bool {
+    return atomic.LoadInt32(&raft.stopped) == 1
+}
+
+func (raft *RaftServer) Vote(ctx context.Context, request *pb.VoteRequest) (*pb.VoteReply, error) {
+    op := NewRaftOperation(NewRaftRequest(request, nil, nil))
+    defer close(op.Callback)
+    raft.nodeMaster.OpsQueue.Push(op)
+
+    reply := <- op.Callback
+    if reply.VoteReply == nil {
+        return nil, errors.New("Internal Server Error")
+    }
+    return reply.VoteReply, nil
+}
+
+func (raft *RaftServer) Append(ctx context.Context, request *pb.AppendRequest) (*pb.AppendReply, error) {
+    op := NewRaftOperation(NewRaftRequest(nil, request, nil))
+    defer close(op.Callback)
+    raft.nodeMaster.OpsQueue.Push(op)
+
+    reply := <- op.Callback
+    if reply.AppendReply == nil {
+        return nil, errors.New("Internal Server Error")
+    }
+    return reply.AppendReply, nil
+}
+
+func (raft *RaftServer) Put(ctx context.Context, request *pb.PutRequest) (*pb.PutReply, error) {
+    op := NewRaftOperation(NewRaftRequest(nil, nil, request))
+    defer close(op.Callback)
+    raft.nodeMaster.OpsQueue.Push(op)
+
+    reply := <- op.Callback
+    if reply.PutReply == nil {
+        return nil, errors.New("Internal Server Error")
+    }
+    return reply.PutReply, nil
+}
+
+///////////////////////////////////////////////////////////////
+// Constructor
+///////////////////////////////////////////////////////////////
+
+func NewRaftServer(peers []string, me int) *RaftServer {
+    raft := &RaftServer{}
+
+    master := NewNodeMaster(rpc.NewMessageExchange(), peers, me)
+    raft.nodeMaster = master
+    raft.stopped = 0
+
+    l, err := net.Listen("tcp", peers[me])
+    if err != nil {
+        log.Println(err)
+        return nil
+    }
+    raft.l = l
+
+    return raft
 }

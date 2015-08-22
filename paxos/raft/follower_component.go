@@ -11,9 +11,13 @@ import (
 type Follower struct {
 	nodeMaster *NodeMaster
 	expire chan bool
+	stopped int32
 }
 
 func (follower *Follower) Run() {
+	if follower.Stopped() {
+		return
+	}
 	processor := NewFollowerRequestProcessor(follower)
 	processor.Start()
 
@@ -23,7 +27,18 @@ func (follower *Follower) Run() {
 	}
 
 	processor.Stop()
+
 	follower.nodeMaster.state = CANDIDATE
+	log.Println("Change to candidate")
+}
+
+func (follower *Follower) Stop() {
+	atomic.StoreInt32(&follower.stopped, 1)
+	follower.expire <- false
+}
+
+func (follower *Follower) Stopped() bool {
+	return atomic.LoadInt32(&follower.stopped) == 1
 }
 
 ///////////////////////////////////////////////////////////////
@@ -54,7 +69,9 @@ func (processor *FollowerRequestProcessor) ProcessOnce() {
 	op := queue.Pull(time.Millisecond * time.Duration(*queuePullTimeout))
 	if op == nil {
 		// Notify follower
+		log.Println("Not hear from leader")
 		processor.follower.expire <- true
+		processor.Stop()
 		return
 	}
 
@@ -140,7 +157,8 @@ func NewFollower(nodeMaster *NodeMaster) (*Follower) {
 
 	follower := &Follower{}
 	follower.nodeMaster = nodeMaster
-	follower.expire = make(chan bool, 1)
+	follower.expire = make(chan bool, 2)
+	follower.stopped = 0
 
 	return follower
 }

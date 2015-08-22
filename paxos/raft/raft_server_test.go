@@ -1,48 +1,68 @@
 package raft
 import (
-	"net"
-	"log"
+	"time"
+	"testing"
 	"google.golang.org/grpc"
 	pb "github.com/chenlanbo/experiment/paxos/protos"
-	"time"
 	"golang.org/x/net/context"
 	"github.com/golang/protobuf/proto"
-	"testing"
 )
 
 var (
-	endpoint = "localhost:50000"
+	peers1 = []string{"localhost:30001", "localhost:30002", "localhost:30003"}
+ 	peers2 = []string{"localhost:30001"}
 )
 
-func TestRaftServer(t *testing.T) {
-	l, err1 := net.Listen("tcp", endpoint)
-	if err1 != nil {
-		log.Fatal(err1)
-		return
+type RaftServerTest struct {
+	peers []string
+	me int
+
+	servers []*RaftServer
+}
+
+func (tt *RaftServerTest) setUp(t *testing.T, peers []string) {
+	tt.peers = peers
+	tt.servers = make([]*RaftServer, len(peers))
+	tt.me = 0
+	for id, _ := range tt.peers {
+		tt.servers[id] = NewRaftServer(tt.peers, id)
+	}
+}
+
+func (tt *RaftServerTest) tearDown(t *testing.T) {
+	for _, raft := range tt.servers {
+		raft.Stop()
+	}
+}
+
+func TestRaftServerOneReplica(t *testing.T) {
+	tt := &RaftServerTest{}
+	tt.setUp(t, peers2)
+	defer tt.tearDown(t)
+
+	for _, raft := range tt.servers {
+		raft.Start()
 	}
 
-	s := grpc.NewServer()
-	pb.RegisterRaftServer(s, &RaftServerImpl{})
-	go func() {
-		s.Serve(l)
-	} ()
+	time.Sleep(time.Second * 5)
 
-	<- time.After(time.Second)
-
-	c, err2 := grpc.Dial(endpoint)
-	if err2 != nil {
-		return
+	c, err := grpc.Dial(peers2[0])
+	if err != nil {
+		t.Log(err)
+		t.Fail()
 	}
 	defer c.Close()
 
 	cli := pb.NewRaftClient(c)
+	reply, err1 := cli.Put(context.Background(), &pb.PutRequest{
+		Key:proto.String("abc"), Value:[]byte("abc")})
+	if err1 != nil {
+		t.Logf("Server returns error %s", err1)
+		t.Fail()
+	}
 
-	request := &pb.PutRequest{
-		Key:proto.String("abc"),
-		Value:make([]byte, 8)}
-
-	reply, _:= cli.Put(context.Background(), request)
-	if reply != nil {
-		t.Log(*reply)
+	if !reply.GetSuccess() {
+		t.Logf("Put not succeeded")
+		t.Fail()
 	}
 }

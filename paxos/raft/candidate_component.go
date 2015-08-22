@@ -22,11 +22,13 @@ type Candidate struct {
 
 	newTermChan chan uint64
 	votedChan chan bool
+
+	stopped int32
 }
 
 func (candidate *Candidate) Run() {
 
-	for {
+	for !candidate.Stopped() {
 		candidate.nodeMaster.store.IncrementCurrentTerm()
 		candidate.nodeMaster.votedLeader = ""
 		newTerm := candidate.nodeMaster.store.CurrentTerm()
@@ -49,7 +51,6 @@ func (candidate *Candidate) Run() {
 				// shouldn't happend
 			}
 		case result := <- candidate.votedChan:
-			log.Println("Result:", result)
 			if result {
 				// I am the new leader
 				candidate.nodeMaster.state = LEADER
@@ -63,6 +64,15 @@ func (candidate *Candidate) Run() {
 			}
 		}
 	}
+}
+
+func (candidate *Candidate) Stop() {
+	atomic.StoreInt32(&candidate.stopped, 1)
+	candidate.votedChan <- true
+}
+
+func (candidate *Candidate) Stopped() bool {
+	return atomic.LoadInt32(&candidate.stopped) == 1
 }
 
 ///////////////////////////////////////////////////////////////
@@ -198,7 +208,6 @@ func (voter *CandidateVoter) VoteSelfAtTerm(newTerm, lastLogTerm, lastLogIndex u
 			}
 
 			if numSuccess > (len(peers) + 1) / 2 {
-				log.Println("SUCCESS 1")
 				// Guaranteed to be the new leader
 				voter.candidate.votedChan <- true
 				return
@@ -206,7 +215,6 @@ func (voter *CandidateVoter) VoteSelfAtTerm(newTerm, lastLogTerm, lastLogIndex u
 		}
 
 		if numSuccess > (len(peers) + 1) / 2 {
-			log.Println("SUCCESS 2")
 			// Guaranteed to be the new leader
 			voter.candidate.votedChan <- true
 			return
@@ -238,7 +246,7 @@ func NewCandidateVoter(candidate *Candidate) *CandidateVoter {
 func NewCandidate(nodeMaster *NodeMaster) *Candidate {
 	candidate := &Candidate{}
 	candidate.nodeMaster = nodeMaster
-	candidate.votedChan = make(chan bool, 1)
-	candidate.newTermChan = make(chan uint64, 1)
+	candidate.votedChan = make(chan bool, 3)
+	candidate.newTermChan = make(chan uint64, 3)
 	return candidate
 }

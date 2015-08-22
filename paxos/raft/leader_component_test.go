@@ -230,7 +230,6 @@ func TestLeaderProcessVoteRequest(t *testing.T) {
 	}
 
 	newTerm := <- tt.leader.newTermChan
-	t.Log(newTerm)
 	if newTerm != 2 {
 		t.Fail()
 	}

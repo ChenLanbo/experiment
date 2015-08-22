@@ -169,6 +169,8 @@ func (replicator *LogReplicator) ReplicateOnce() bool {
 	logsToReplicate := make([]*pb.Log, 0)
 	if newLog != nil {
 		logsToReplicate = append(logsToReplicate, newLog)
+	} else {
+		time.Sleep(time.Millisecond * 300)
 	}
 
 	request := &pb.AppendRequest{
