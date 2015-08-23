@@ -44,8 +44,8 @@ func (tt *FollowerComponentTest) tearDown(t *testing.T) {
 	tt.mockCtrl = nil
 }
 
-func TestTimeoutWithNoRequests(t *testing.T) {
-	tt := FollowerComponentTest{}
+func TestFollowerTimeoutWithNoRequests(t *testing.T) {
+	tt := &FollowerComponentTest{}
 	tt.setUp(t)
 	defer tt.tearDown(t)
 
@@ -60,8 +60,8 @@ func TestTimeoutWithNoRequests(t *testing.T) {
 	}
 }
 
-func TestVote(t *testing.T) {
-	tt := FollowerComponentTest{}
+func TestFollowerHandleVote(t *testing.T) {
+	tt := &FollowerComponentTest{}
 	tt.setUp(t)
 	defer tt.tearDown(t)
 
@@ -70,15 +70,16 @@ func TestVote(t *testing.T) {
 		CandidateId:proto.String(tt.peers[1]),
 		LastLogTerm:proto.Uint64(0),
 		LastLogIndex:proto.Uint64(0)}
-	op := NewRaftOperation(NewRaftRequest(voteRequest1, nil, nil))
-	tt.nodeMaster.OpsQueue.Push(op)
+	op1 := NewRaftOperation(NewRaftRequest(voteRequest1, nil, nil))
+	defer close(op1.Callback)
+	tt.nodeMaster.OpsQueue.Push(op1)
 
 	tt.processor.ProcessOnce()
 	if tt.nodeMaster.store.CurrentTerm() != 1 {
 		t.Fail()
 	}
 
-	reply := <- op.Callback
+	reply := <- op1.Callback
 	if reply.VoteReply == nil {
 		t.Fatal("Empty vote reply")
 		t.Fail()
@@ -87,7 +88,6 @@ func TestVote(t *testing.T) {
 		t.Fatal("Vote not granted")
 		t.Fail()
 	}
-	close(op.Callback)
 
 	// Another candidate send vote in the same term
 	voteRequest2 := &pb.VoteRequest{
@@ -95,11 +95,12 @@ func TestVote(t *testing.T) {
 		CandidateId:proto.String(tt.peers[2]),
 		LastLogTerm:proto.Uint64(0),
 		LastLogIndex:proto.Uint64(0)}
-	op = NewRaftOperation(NewRaftRequest(voteRequest2, nil, nil))
-	tt.nodeMaster.OpsQueue.Push(op)
+	op2 := NewRaftOperation(NewRaftRequest(voteRequest2, nil, nil))
+	defer close(op2.Callback)
+	tt.nodeMaster.OpsQueue.Push(op2)
 
 	tt.processor.ProcessOnce()
-	reply = <- op.Callback
+	reply = <- op2.Callback
 	if reply.VoteReply == nil {
 		t.Fatal("Empty vote reply")
 		t.Fail()
@@ -108,11 +109,71 @@ func TestVote(t *testing.T) {
 		t.Fatal("Vote should not be granted")
 		t.Fail()
 	}
-	close(op.Callback)
 }
 
-func TestAppend(t *testing.T) {
-	tt := FollowerComponentTest{}
+func TestFollowerHandleVoteLogNotUpToDate(t *testing.T) {
+	tt := &FollowerComponentTest{}
+	tt.setUp(t)
+	defer tt.tearDown(t)
+
+	tt.nodeMaster.store.IncrementCurrentTerm()
+	tt.nodeMaster.store.Write([]byte("abc"))
+	tt.nodeMaster.store.Write([]byte("abc"))
+
+	// Voter's log not up to date (index behind)
+	voteRequest1 := &pb.VoteRequest{
+		Term:proto.Uint64(2),
+		CandidateId:proto.String(tt.peers[2]),
+		LastLogTerm:proto.Uint64(1),
+		LastLogIndex:proto.Uint64(1)}
+	op1 := NewRaftOperation(NewRaftRequest(voteRequest1, nil, nil))
+	defer close(op1.Callback)
+	tt.nodeMaster.OpsQueue.Push(op1)
+
+	tt.processor.ProcessOnce()
+	reply := <- op1.Callback
+	if reply.VoteReply == nil || reply.VoteReply.GetGranted() {
+		t.Fail()
+	}
+
+	// Voter's log up to date
+	voteRequest2 := &pb.VoteRequest{
+		Term:proto.Uint64(2),
+		CandidateId:proto.String(tt.peers[2]),
+		LastLogTerm:proto.Uint64(1),
+		LastLogIndex:proto.Uint64(2)}
+	op2 := NewRaftOperation(NewRaftRequest(voteRequest2, nil, nil))
+	defer close(op2.Callback)
+	tt.nodeMaster.OpsQueue.Push(op2)
+
+	tt.processor.ProcessOnce()
+	reply = <- op2.Callback
+	if reply.VoteReply == nil || !reply.VoteReply.GetGranted() {
+		t.Fail()
+	}
+
+	tt.nodeMaster.store.IncrementCurrentTerm()
+	tt.nodeMaster.store.Write([]byte("abc"))
+
+	// Voter's log not up to date (term behind)
+	voteRequest3 := &pb.VoteRequest{
+		Term:proto.Uint64(3),
+		CandidateId:proto.String(tt.peers[2]),
+		LastLogTerm:proto.Uint64(1),
+		LastLogIndex:proto.Uint64(3)}
+	op3 := NewRaftOperation(NewRaftRequest(voteRequest3, nil, nil))
+	defer close(op3.Callback)
+	tt.nodeMaster.OpsQueue.Push(op3)
+
+	tt.processor.ProcessOnce()
+	reply = <- op3.Callback
+	if reply.VoteReply == nil || reply.VoteReply.GetGranted() {
+		t.Fail()
+	}
+}
+
+func TestFollowerHandleAppend(t *testing.T) {
+	tt := &FollowerComponentTest{}
 	tt.setUp(t)
 	defer tt.tearDown(t)
 

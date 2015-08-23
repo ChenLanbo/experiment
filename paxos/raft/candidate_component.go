@@ -41,8 +41,8 @@ func (candidate *Candidate) Run() {
 		processor.ProcessRequestsAtTerm(newTerm)
 
 		select {
-		case higerTerm := <- candidate.newTermChan:
-			if higerTerm >= newTerm {
+		case higherTerm := <- candidate.newTermChan:
+			if higherTerm >= newTerm {
 				candidate.nodeMaster.state = FOLLOWER
 				processor.Stop()
 				voter.Stop()

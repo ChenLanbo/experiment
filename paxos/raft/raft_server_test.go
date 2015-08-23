@@ -127,6 +127,7 @@ func TestRaftServerThreeReplicaWithLeaderFailOver(t *testing.T)  {
 		t.Fail()
 	}
 
+	// Stop the leader
 	curLeader := -1
 	for id, raft := range tt.servers {
 		if raft.nodeMaster.state == LEADER {
@@ -138,6 +139,7 @@ func TestRaftServerThreeReplicaWithLeaderFailOver(t *testing.T)  {
 		t.Fail()
 	}
 
+	// A new leader should be elected and put should succeed
 	time.Sleep(time.Second * 5)
 	tempPeers := make([]string, 0)
 	for id, _ := range peers1 {
@@ -160,6 +162,75 @@ func TestRaftServerThreeReplicaWithLeaderFailOver(t *testing.T)  {
 	}
 }
 
+func TestRaftServerThreeReplicaWithLogNotOnMajority(t *testing.T) {
+	tt := &RaftServerTest{}
+	tt.setUp(t, peers1)
+	defer tt.tearDown(t)
+
+	for id, raft := range tt.servers {
+		raft.nodeMaster.store.IncrementCurrentTerm()
+		raft.nodeMaster.store.WriteKeyValue("abc", []byte("abc"))
+		if id == 2 {
+			// Peer 2's log not on majority
+			raft.nodeMaster.store.WriteKeyValue("abc1", []byte("abc"))
+		}
+	}
+
+	tt.servers[0].Start()
+	tt.servers[1].Start()
+	time.Sleep(time.Second * 3)
+
+	// Peer 2's log will be overridden
+	tt.servers[2].Start()
+	time.Sleep(time.Second * 3)
+
+	if sendPutToReplicas(peers1) != nil {
+		t.Fail()
+	}
+	time.Sleep(time.Second)
+
+	l := tt.servers[2].nodeMaster.store.Read(2)
+	if l.GetData() == nil {
+		t.Fail()
+	}
+	if l.GetData().GetKey() != "abc" {
+		t.Fail()
+	}
+}
+
+func TestRaftServerThreeReplicaNotUpToDatePeerNotLeader(t *testing.T) {
+	tt := &RaftServerTest{}
+	tt.setUp(t, peers1)
+	defer tt.tearDown(t)
+
+	for id, raft := range tt.servers {
+		raft.nodeMaster.store.IncrementCurrentTerm()
+		raft.nodeMaster.store.WriteKeyValue("abc", []byte("abc"))
+		if id != 2 {
+			// Peer 2's log not on majority
+			raft.nodeMaster.store.WriteKeyValue("abc1", []byte("abc1"))
+		}
+	}
+
+	tt.servers[2].Start()
+	time.Sleep(time.Second * 1)
+
+	tt.servers[0].Start()
+	tt.servers[1].Start()
+	time.Sleep(time.Second * 5)
+
+	for id, raft := range tt.servers {
+		if id == 2 && raft.nodeMaster.state == LEADER {
+			t.Fail()
+		}
+	}
+
+	if sendPutToReplicas(peers1) != nil {
+		t.Fail()
+	}
+}
+
+// Util function
 func sendPutToReplicas(peers []string) error {
 	exchange := rpc.NewMessageExchange()
 	request := &pb.PutRequest{

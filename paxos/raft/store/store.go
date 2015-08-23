@@ -73,6 +73,11 @@ func (s *Store) LatestIndex() uint64 {
 	return *(s.logs[len(s.logs) - 1]).LogId
 }
 
+// Check if another peer's log is at least up to date as my log:
+//
+// Returns:
+//   true if otherLogTerm > myTerm or if otherLogTerm == myTerm and otherLogId >= myLogId
+//   false if otherLogTerm < myTerm or if otherLogTerm == myTerm and otherLogId < myLogId
 func (s *Store) OtherLogUpToDate(otherLogId, otherLogTerm uint64) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -171,7 +176,7 @@ func (s *Store) Write(data []byte) {
 	defer s.mu.Unlock()
 
 	newLog := pb.Log{}
-	newLog.LogId = proto.Uint64(*s.logs[len(s.logs) - 1].LogId + 1)
+	newLog.LogId = proto.Uint64(s.logs[len(s.logs) - 1].GetLogId() + 1)
 	newLog.Term = proto.Uint64(s.currentTerm)
 
 	s.logs = append(s.logs, newLog)
@@ -182,14 +187,14 @@ func (s *Store) WriteKeyValue(key string, value []byte) uint64 {
 	defer s.mu.Unlock()
 
 	newLog := pb.Log{}
-	newLog.LogId = proto.Uint64(*s.logs[len(s.logs) - 1].LogId + 1)
+	newLog.LogId = proto.Uint64(s.logs[len(s.logs) - 1].GetLogId() + 1)
 	newLog.Term = proto.Uint64(s.currentTerm)
 	newLog.Data = &pb.Log_Data{
 		Key:proto.String(key),
 		Value:value}
 
 	s.logs = append(s.logs, newLog)
-	return *newLog.LogId
+	return newLog.GetLogId()
 }
 
 func NewStore() (*Store) {

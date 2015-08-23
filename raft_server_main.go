@@ -25,9 +25,6 @@ func XX() {
 }
 
 func main() {
-
-  x := make(chan bool, 0)
-  // close(x)
-  y := <- x
-  println(y)
+  x := int64(time.Second)
+  println(x)
 }

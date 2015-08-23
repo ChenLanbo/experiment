@@ -13,7 +13,7 @@ type Follower struct {
 	nodeMaster *NodeMaster
 
 	expireCtx  context.Context
-	expireCancal context.CancelFunc
+	expireCancel context.CancelFunc
 
 	stopped    int32
 	stopCtx    context.Context
@@ -54,6 +54,7 @@ func (follower *Follower) Stopped() bool {
 type FollowerRequestProcessor struct {
 	follower *Follower
 	stopped int32
+	lastSawAppend int64
 	mu sync.Mutex
 }
 
@@ -74,14 +75,25 @@ func (processor *FollowerRequestProcessor) ProcessOnce() {
 	success := false
 	op := queue.Pull(time.Millisecond * time.Duration(*queuePullTimeout))
 	if op == nil {
-		// Notify follower
+		// Election timeout (not hear append from leader), notify follower to become candidate
 		log.Println(
 			processor.follower.nodeMaster.MyEndpoint(),
 			"not hear from leader",
 			processor.follower.nodeMaster.votedLeader)
-		processor.follower.expireCancal()
+		processor.follower.expireCancel()
 		processor.Stop()
 		return
+	}
+
+	ts := time.Now().UnixNano()
+	if op.Request.AppendRequest == nil {
+		if ts - processor.lastSawAppend >= int64(time.Second) {
+			processor.follower.expireCancel()
+			processor.Stop()
+			return
+		}
+	} else {
+		processor.lastSawAppend = ts
 	}
 
 	if op.Request.AppendRequest != nil {
@@ -116,17 +128,14 @@ func (processor *FollowerRequestProcessor) ProcessOnce() {
 		if store.CurrentTerm() == op.Request.VoteRequest.GetTerm() {
 			if processor.follower.nodeMaster.votedLeader != "" &&
 			   processor.follower.nodeMaster.votedLeader == op.Request.VoteRequest.GetCandidateId() &&
-			   store.Match(op.Request.VoteRequest.GetLastLogIndex(), op.Request.VoteRequest.GetLastLogTerm()) {
+			   store.OtherLogUpToDate(op.Request.VoteRequest.GetLastLogIndex(), op.Request.VoteRequest.GetLastLogTerm()) {
 				success = true
 			}
 		} else if store.CurrentTerm() < op.Request.VoteRequest.GetTerm() {
-			if store.Match(op.Request.VoteRequest.GetLastLogIndex(), op.Request.VoteRequest.GetLastLogTerm()) {
+			store.SetCurrentTerm(op.Request.VoteRequest.GetTerm())
+			if store.OtherLogUpToDate(op.Request.VoteRequest.GetLastLogIndex(), op.Request.VoteRequest.GetLastLogTerm()) {
 				success = true
 			}
-		}
-
-		if success {
-			store.SetCurrentTerm(op.Request.VoteRequest.GetTerm())
 		}
 
 		reply.Granted = proto.Bool(success)
@@ -156,6 +165,7 @@ func (processor *FollowerRequestProcessor) Stopped() bool {
 func NewFollowerRequestProcessor(follower *Follower) *FollowerRequestProcessor {
 	processor := &FollowerRequestProcessor{}
 	processor.follower = follower
+	processor.lastSawAppend = time.Now().UnixNano()
 	return processor
 }
 
@@ -170,7 +180,7 @@ func NewFollower(nodeMaster *NodeMaster) (*Follower) {
 	follower.stopped = 0
 	follower.stopCtx, follower.stopCancel = context.WithCancel(context.Background())
 
-	follower.expireCtx, follower.expireCancal = context.WithCancel(context.Background())
+	follower.expireCtx, follower.expireCancel = context.WithCancel(context.Background())
 
 	return follower
 }
