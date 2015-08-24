@@ -172,7 +172,7 @@ func TestRaftServerThreeReplicaWithLogNotOnMajority(t *testing.T) {
 		raft.nodeMaster.store.WriteKeyValue("abc", []byte("abc"))
 		if id == 2 {
 			// Peer 2's log not on majority
-			raft.nodeMaster.store.WriteKeyValue("abc1", []byte("abc"))
+			raft.nodeMaster.store.WriteKeyValue("abc1", []byte("abc1"))
 		}
 	}
 
@@ -227,6 +227,30 @@ func TestRaftServerThreeReplicaNotUpToDatePeerNotLeader(t *testing.T) {
 
 	if sendPutToReplicas(peers1) != nil {
 		t.Fail()
+	}
+}
+
+func TestRaftServerThreeReplicaMajorityDown(t *testing.T) {
+	tt := &RaftServerTest{}
+	tt.setUp(t, peers1)
+	defer tt.tearDown(t)
+
+	tt.servers[0].Start()
+	time.Sleep(time.Second * 2)
+
+	if tt.servers[0].nodeMaster.state == LEADER {
+		t.Fail()
+	}
+	if sendPutToReplicas(peers1) == nil {
+		t.Fail()
+	}
+
+	// Majority come back
+	tt.servers[1].Start()
+	tt.servers[2].Start()
+	time.Sleep(time.Second * 3)
+	if sendPutToReplicas(peers1) != nil {
+		t.Error("Majority should have come back")
 	}
 }
 

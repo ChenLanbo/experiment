@@ -30,6 +30,7 @@ func (follower *Follower) Run() {
 
 	select {
 	case <-follower.stopCtx.Done():
+		log.Println("Stop processor")
 		processor.Stop()
 	case <-follower.expireCtx.Done():
 		processor.Stop()
@@ -74,29 +75,8 @@ func (processor *FollowerRequestProcessor) ProcessOnce() {
 	store := processor.follower.nodeMaster.store
 	success := false
 	op := queue.Pull(time.Millisecond * time.Duration(*queuePullTimeout))
-	if op == nil {
-		// Election timeout (not hear append from leader), notify follower to become candidate
-		log.Println(
-			processor.follower.nodeMaster.MyEndpoint(),
-			"not hear from leader",
-			processor.follower.nodeMaster.votedLeader)
-		processor.follower.expireCancel()
-		processor.Stop()
-		return
-	}
 
-	ts := time.Now().UnixNano()
-	if op.Request.AppendRequest == nil {
-		if ts - processor.lastSawAppend >= int64(time.Second) {
-			processor.follower.expireCancel()
-			processor.Stop()
-			return
-		}
-	} else {
-		processor.lastSawAppend = ts
-	}
-
-	if op.Request.AppendRequest != nil {
+	if op != nil && op.Request.AppendRequest != nil {
 		reply := &pb.AppendReply{}
 
 		if store.CurrentTerm() <= op.Request.AppendRequest.GetTerm() {
@@ -122,19 +102,32 @@ func (processor *FollowerRequestProcessor) ProcessOnce() {
 		reply.Term = proto.Uint64(store.CurrentTerm())
 		op.Callback <- *NewRaftReply(nil, reply, nil)
 
-	} else if op.Request.VoteRequest != nil {
+	} else if op != nil && op.Request.VoteRequest != nil {
 		reply := &pb.VoteReply{}
 
+		// If votedLeader is null or candidateId, and candidate's log is at least as up-to-date
+		// as receiver’s log, grant vote.
 		if store.CurrentTerm() == op.Request.VoteRequest.GetTerm() {
+			if processor.follower.nodeMaster.votedLeader == "" &&
+			   store.OtherLogUpToDate(op.Request.VoteRequest.GetLastLogIndex(), op.Request.VoteRequest.GetLastLogTerm()) {
+				success = true
+				processor.follower.nodeMaster.votedLeader = op.Request.VoteRequest.GetCandidateId()
+			}
+
 			if processor.follower.nodeMaster.votedLeader != "" &&
 			   processor.follower.nodeMaster.votedLeader == op.Request.VoteRequest.GetCandidateId() &&
 			   store.OtherLogUpToDate(op.Request.VoteRequest.GetLastLogIndex(), op.Request.VoteRequest.GetLastLogTerm()) {
 				success = true
+				processor.follower.nodeMaster.votedLeader = op.Request.VoteRequest.GetCandidateId()
 			}
+
 		} else if store.CurrentTerm() < op.Request.VoteRequest.GetTerm() {
 			store.SetCurrentTerm(op.Request.VoteRequest.GetTerm())
 			if store.OtherLogUpToDate(op.Request.VoteRequest.GetLastLogIndex(), op.Request.VoteRequest.GetLastLogTerm()) {
 				success = true
+				processor.follower.nodeMaster.votedLeader = op.Request.VoteRequest.GetCandidateId()
+			} else {
+				processor.follower.nodeMaster.votedLeader = ""
 			}
 		}
 
@@ -142,11 +135,23 @@ func (processor *FollowerRequestProcessor) ProcessOnce() {
 		reply.Term = proto.Uint64(store.CurrentTerm())
 		op.Callback <- *NewRaftReply(reply, nil, nil)
 
-	} else if op.Request.PutRequest != nil {
+	} else if op != nil && op.Request.PutRequest != nil {
 		reply := &pb.PutReply{
 			Success:proto.Bool(success),
 			LeaderId:proto.String(processor.follower.nodeMaster.votedLeader)}
 		op.Callback <- *NewRaftReply(nil, nil, reply)
+	}
+
+	if op != nil && op.Request.AppendRequest != nil {
+		processor.lastSawAppend = time.Now().UnixNano()
+	} else if time.Now().UnixNano() - processor.lastSawAppend >= int64(time.Second) {
+		// Election timeout (not hear append from leader), notify follower to become candidate
+		log.Println(
+			processor.follower.nodeMaster.MyEndpoint(),
+			"not hear from leader",
+			processor.follower.nodeMaster.votedLeader)
+		processor.follower.expireCancel()
+		processor.Stop()
 	}
 }
 

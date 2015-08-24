@@ -27,4 +27,9 @@ func XX() {
 func main() {
   x := int64(time.Second)
   println(x)
+
+  mp := make(map[string][]byte)
+  mp["abc"] = []byte("abc")
+
+  println(string(mp["abc"]))
 }
