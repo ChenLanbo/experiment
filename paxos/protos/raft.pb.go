@@ -16,6 +16,8 @@ It has these top-level messages:
 	Log
 	PutRequest
 	PutReply
+	GetRequest
+	GetReply
 */
 package protos
 
@@ -284,6 +286,46 @@ func (m *PutReply) GetLeaderId() string {
 	return ""
 }
 
+type GetRequest struct {
+	Key              *string `protobuf:"bytes,1,req,name=key" json:"key,omitempty"`
+	XXX_unrecognized []byte  `json:"-"`
+}
+
+func (m *GetRequest) Reset()         { *m = GetRequest{} }
+func (m *GetRequest) String() string { return proto.CompactTextString(m) }
+func (*GetRequest) ProtoMessage()    {}
+
+func (m *GetRequest) GetKey() string {
+	if m != nil && m.Key != nil {
+		return *m.Key
+	}
+	return ""
+}
+
+type GetReply struct {
+	Key              *string `protobuf:"bytes,1,req,name=key" json:"key,omitempty"`
+	Value            []byte  `protobuf:"bytes,2,opt,name=value" json:"value,omitempty"`
+	XXX_unrecognized []byte  `json:"-"`
+}
+
+func (m *GetReply) Reset()         { *m = GetReply{} }
+func (m *GetReply) String() string { return proto.CompactTextString(m) }
+func (*GetReply) ProtoMessage()    {}
+
+func (m *GetReply) GetKey() string {
+	if m != nil && m.Key != nil {
+		return *m.Key
+	}
+	return ""
+}
+
+func (m *GetReply) GetValue() []byte {
+	if m != nil {
+		return m.Value
+	}
+	return nil
+}
+
 // Client API for Raft service
 
 type RaftClient interface {
@@ -293,6 +335,7 @@ type RaftClient interface {
 	Append(ctx context.Context, in *AppendRequest, opts ...grpc.CallOption) (*AppendReply, error)
 	// Public APIs
 	Put(ctx context.Context, in *PutRequest, opts ...grpc.CallOption) (*PutReply, error)
+	Get(ctx context.Context, in *GetRequest, opts ...grpc.CallOption) (*GetReply, error)
 }
 
 type raftClient struct {
@@ -330,6 +373,15 @@ func (c *raftClient) Put(ctx context.Context, in *PutRequest, opts ...grpc.CallO
 	return out, nil
 }
 
+func (c *raftClient) Get(ctx context.Context, in *GetRequest, opts ...grpc.CallOption) (*GetReply, error) {
+	out := new(GetReply)
+	err := grpc.Invoke(ctx, "/protos.Raft/Get", in, out, c.cc, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // Server API for Raft service
 
 type RaftServer interface {
@@ -339,6 +391,7 @@ type RaftServer interface {
 	Append(context.Context, *AppendRequest) (*AppendReply, error)
 	// Public APIs
 	Put(context.Context, *PutRequest) (*PutReply, error)
+	Get(context.Context, *GetRequest) (*GetReply, error)
 }
 
 func RegisterRaftServer(s *grpc.Server, srv RaftServer) {
@@ -381,6 +434,18 @@ func _Raft_Put_Handler(srv interface{}, ctx context.Context, codec grpc.Codec, b
 	return out, nil
 }
 
+func _Raft_Get_Handler(srv interface{}, ctx context.Context, codec grpc.Codec, buf []byte) (interface{}, error) {
+	in := new(GetRequest)
+	if err := codec.Unmarshal(buf, in); err != nil {
+		return nil, err
+	}
+	out, err := srv.(RaftServer).Get(ctx, in)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 var _Raft_serviceDesc = grpc.ServiceDesc{
 	ServiceName: "protos.Raft",
 	HandlerType: (*RaftServer)(nil),
@@ -396,6 +461,10 @@ var _Raft_serviceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Put",
 			Handler:    _Raft_Put_Handler,
+		},
+		{
+			MethodName: "Get",
+			Handler:    _Raft_Get_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{},

@@ -136,11 +136,11 @@ func TestRaftServerThreeReplicaWithLeaderFailOver(t *testing.T)  {
 		}
 	}
 	if curLeader == -1 {
-		t.Fail()
+		t.Error("No leader elected")
 	}
 
 	// A new leader should be elected and put should succeed
-	time.Sleep(time.Second * 5)
+	time.Sleep(time.Second * 6)
 	tempPeers := make([]string, 0)
 	for id, _ := range peers1 {
 		if id != curLeader {
@@ -148,7 +148,7 @@ func TestRaftServerThreeReplicaWithLeaderFailOver(t *testing.T)  {
 		}
 	}
 	if sendPutToReplicas(tempPeers) != nil {
-		t.Fail()
+		t.Error("Put should have succeeded with remaining peers")
 	}
 
 	for id, raft := range tt.servers {

@@ -80,6 +80,10 @@ func (raft *RaftServer) Append(ctx context.Context, request *pb.AppendRequest) (
     return reply.AppendReply, nil
 }
 
+///////////////////////////////////////////////////////////////
+// Public APIs
+///////////////////////////////////////////////////////////////
+
 func (raft *RaftServer) Put(ctx context.Context, request *pb.PutRequest) (*pb.PutReply, error) {
     op := NewRaftOperation(NewRaftRequest(nil, nil, request))
     defer close(op.Callback)
@@ -94,6 +98,10 @@ func (raft *RaftServer) Put(ctx context.Context, request *pb.PutRequest) (*pb.Pu
         return nil, errors.New("Internal Server Error")
     }
     return reply.PutReply, nil
+}
+
+func (raft *RaftServer) Get(ctx context.Context, request *pb.GetRequest) (*pb.GetReply, error) {
+    return nil, errors.New("Not implemented")
 }
 
 ///////////////////////////////////////////////////////////////

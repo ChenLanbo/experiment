@@ -49,6 +49,15 @@ message PutReply {
     optional string leaderId = 2;
 }
 
+message GetRequest {
+    required string key = 1;
+}
+
+message GetReply {
+    required string key = 1;
+    optional bytes  value = 2;
+}
+
 service Raft {
 
     // Vote request
@@ -59,4 +68,6 @@ service Raft {
 
     // Public APIs
     rpc Put(PutRequest) returns (PutReply) {}
+
+    rpc Get(GetRequest) returns (GetReply) {}
 }

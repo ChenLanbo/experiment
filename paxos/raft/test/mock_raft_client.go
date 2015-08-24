@@ -4,10 +4,10 @@
 package test
 
 import (
-	grpc "google.golang.org/grpc"
-	gomock "github.com/golang/mock/gomock"
 	context "golang.org/x/net/context"
 	protos "github.com/chenlanbo/experiment/paxos/protos"
+	grpc "google.golang.org/grpc"
+	gomock "github.com/golang/mock/gomock"
 )
 
 // Mock of RaftClient interface
@@ -45,6 +45,22 @@ func (_m *MockRaftClient) Append(_param0 context.Context, _param1 *protos.Append
 func (_mr *_MockRaftClientRecorder) Append(arg0, arg1 interface{}, arg2 ...interface{}) *gomock.Call {
 	_s := append([]interface{}{arg0, arg1}, arg2...)
 	return _mr.mock.ctrl.RecordCall(_mr.mock, "Append", _s...)
+}
+
+func (_m *MockRaftClient) Get(_param0 context.Context, _param1 *protos.GetRequest, _param2 ...grpc.CallOption) (*protos.GetReply, error) {
+	_s := []interface{}{_param0, _param1}
+	for _, _x := range _param2 {
+		_s = append(_s, _x)
+	}
+	ret := _m.ctrl.Call(_m, "Get", _s...)
+	ret0, _ := ret[0].(*protos.GetReply)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+func (_mr *_MockRaftClientRecorder) Get(arg0, arg1 interface{}, arg2 ...interface{}) *gomock.Call {
+	_s := append([]interface{}{arg0, arg1}, arg2...)
+	return _mr.mock.ctrl.RecordCall(_mr.mock, "Get", _s...)
 }
 
 func (_m *MockRaftClient) Put(_param0 context.Context, _param1 *protos.PutRequest, _param2 ...grpc.CallOption) (*protos.PutReply, error) {
