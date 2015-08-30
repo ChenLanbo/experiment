@@ -303,14 +303,30 @@ func (m *GetRequest) GetKey() string {
 }
 
 type GetReply struct {
-	Key              *string `protobuf:"bytes,1,req,name=key" json:"key,omitempty"`
-	Value            []byte  `protobuf:"bytes,2,opt,name=value" json:"value,omitempty"`
+	Success          *bool   `protobuf:"varint,1,req,name=success" json:"success,omitempty"`
+	LeaderId         *string `protobuf:"bytes,2,opt,name=leaderId" json:"leaderId,omitempty"`
+	Key              *string `protobuf:"bytes,3,req,name=key" json:"key,omitempty"`
+	Value            []byte  `protobuf:"bytes,4,opt,name=value" json:"value,omitempty"`
 	XXX_unrecognized []byte  `json:"-"`
 }
 
 func (m *GetReply) Reset()         { *m = GetReply{} }
 func (m *GetReply) String() string { return proto.CompactTextString(m) }
 func (*GetReply) ProtoMessage()    {}
+
+func (m *GetReply) GetSuccess() bool {
+	if m != nil && m.Success != nil {
+		return *m.Success
+	}
+	return false
+}
+
+func (m *GetReply) GetLeaderId() string {
+	if m != nil && m.LeaderId != nil {
+		return *m.LeaderId
+	}
+	return ""
+}
 
 func (m *GetReply) GetKey() string {
 	if m != nil && m.Key != nil {

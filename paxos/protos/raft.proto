@@ -1,5 +1,7 @@
 package protos;
 
+// protoc raft.proto --go_out=plugins=grpc:.
+
 message VoteRequest {
     required uint64 term = 1;
     required string candidateId = 2;
@@ -47,6 +49,7 @@ message PutRequest {
 message PutReply {
     required bool success = 1;
     optional string leaderId = 2;
+    optional string logId = 3;
 }
 
 message GetRequest {
@@ -54,8 +57,10 @@ message GetRequest {
 }
 
 message GetReply {
-    required string key = 1;
-    optional bytes  value = 2;
+    required bool success = 1;
+    optional string leaderId = 2;
+    required string key = 3;
+    optional bytes  value = 4;
 }
 
 service Raft {

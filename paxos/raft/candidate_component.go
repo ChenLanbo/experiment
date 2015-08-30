@@ -112,11 +112,11 @@ func (processor *CandidateRequestProcessor) ProcessRequestsAtTerm(newTerm uint64
 			}
 
 			if op.Request.AppendRequest != nil {
+
 				reply := &pb.AppendReply{
 					Success:proto.Bool(false),
 					Term:proto.Uint64(newTerm)}
-
-				op.Callback <- *NewRaftReply(nil, reply, nil)
+				op.Callback <- *WithAppendReply(EmptyRaftReply(), reply)
 
 				if newTerm <= op.Request.AppendRequest.GetTerm() {
 					processor.candidate.newTermChan <- op.Request.AppendRequest.GetTerm()
@@ -128,7 +128,7 @@ func (processor *CandidateRequestProcessor) ProcessRequestsAtTerm(newTerm uint64
 				reply := &pb.VoteReply{
 					Granted:proto.Bool(false),
 					Term:proto.Uint64(newTerm)}
-				op.Callback <- *NewRaftReply(reply, nil, nil)
+				op.Callback <- *WithVoteReply(EmptyRaftReply(), reply)
 
 				if newTerm < op.Request.VoteRequest.GetTerm() {
 					processor.candidate.newTermChan <- op.Request.VoteRequest.GetTerm()
@@ -136,8 +136,16 @@ func (processor *CandidateRequestProcessor) ProcessRequestsAtTerm(newTerm uint64
 				}
 
 			} else if op.Request.PutRequest != nil {
+
 				reply := &pb.PutReply{Success:proto.Bool(false)}
-				op.Callback <- *NewRaftReply(nil, nil, reply)
+				op.Callback <- *WithPutReply(EmptyRaftReply(), reply)
+
+			} else if op.Request.GetRequest != nil {
+
+				reply := &pb.GetReply{
+					Success:proto.Bool(false),
+					Key:proto.String(op.Request.GetRequest.GetKey())}
+				op.Callback <- *WithGetReply(EmptyRaftReply(), reply)
 			}
 		}
 	} ()

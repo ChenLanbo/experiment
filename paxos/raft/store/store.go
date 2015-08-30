@@ -19,6 +19,7 @@ type Store struct {
 	commitIndex uint64
 	lastApplied uint64
 	logs []pb.Log
+	snapshot map[string][]byte
 
 	mu sync.Mutex
 }
@@ -57,11 +58,19 @@ func (s *Store) SetCommitIndex(commitIndex uint64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if *s.logs[len(s.logs) - 1].LogId < commitIndex {
+	if s.logs[len(s.logs) - 1].GetLogId() < commitIndex {
 		return
 	}
 
 	if s.commitIndex < commitIndex {
+		// 1. Apply new committed logs to snapshot
+		for i := s.commitIndex + 1; i <= commitIndex; i++ {
+			logData := s.logs[i].GetData()
+			if logData != nil && logData.GetKey() != "" {
+				s.snapshot[logData.GetKey()] = logData.GetValue()
+			}
+		}
+		// 2. Update commit index
 		s.commitIndex = commitIndex
 	}
 }
@@ -70,7 +79,7 @@ func (s *Store) LatestIndex() uint64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	return *(s.logs[len(s.logs) - 1]).LogId
+	return s.logs[len(s.logs) - 1].GetLogId()
 }
 
 // Check if another peer's log is at least up to date as my log:
@@ -82,8 +91,8 @@ func (s *Store) OtherLogUpToDate(otherLogId, otherLogTerm uint64) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	myLogId := *s.logs[len(s.logs) - 1].LogId
-	myTerm := *s.logs[len(s.logs) - 1].Term
+	myLogId := s.logs[len(s.logs) - 1].GetLogId()
+	myTerm := s.logs[len(s.logs) - 1].GetTerm()
 
 	if myTerm < otherLogTerm {
 		return true
@@ -98,7 +107,7 @@ func (s *Store) Match(logId, term uint64) (bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if logId >= uint64(len(s.logs)) || term != *s.logs[logId].Term  {
+	if logId >= uint64(len(s.logs)) || term != s.logs[logId].GetTerm() {
 		return false
 	}
 
@@ -130,24 +139,24 @@ func (s *Store) Append(commitIndex uint64, logs []pb.Log) error {
 	var prevLogId uint64 = 0
 	for _, l := range(logs) {
 		if prevLogId == 0 {
-			prevLogId = *l.LogId
+			prevLogId = l.GetLogId()
 		} else {
-			if prevLogId + 1 != *l.LogId {
+			if prevLogId + 1 != l.GetLogId() {
 				return errors.New("LogId not continuous")
 			} else {
-				prevLogId = *l.LogId
+				prevLogId = l.GetLogId()
 			}
 		}
 	}
 
-	if len(logs) > 0 && *logs[0].LogId > *s.logs[len(s.logs) - 1].LogId + 1 {
+	if len(logs) > 0 && logs[0].GetLogId() > s.logs[len(s.logs) - 1].GetLogId() + 1 {
 		// Gap
 		return errors.New("LogId not continuous")
 	}
 
-	latestLogId := *s.logs[len(s.logs) - 1].LogId
-	if len(logs) > 0 && latestLogId < *logs[len(logs) - 1].LogId {
-		latestLogId = *logs[len(logs) - 1].LogId
+	latestLogId := s.logs[len(s.logs) - 1].GetLogId()
+	if len(logs) > 0 && latestLogId < logs[len(logs) - 1].GetLogId() {
+		latestLogId = logs[len(logs) - 1].GetLogId()
 	}
 	if commitIndex > latestLogId {
 		return errors.New("Commit index out of bound")
@@ -164,7 +173,13 @@ func (s *Store) Append(commitIndex uint64, logs []pb.Log) error {
 	}
 
 	// Update commit index
-	if commitIndex > s.commitIndex {
+	if s.commitIndex < commitIndex {
+		for i := s.commitIndex + 1; i <= commitIndex; i++ {
+			logData := s.logs[i].GetData()
+			if logData != nil && logData.GetKey() != "" {
+				s.snapshot[logData.GetKey()] = logData.GetValue()
+			}
+		}
 		s.commitIndex = commitIndex
 	}
 
@@ -197,6 +212,20 @@ func (s *Store) WriteKeyValue(key string, value []byte) uint64 {
 	return newLog.GetLogId()
 }
 
+func (s *Store) GetKeyValue(key string) []byte {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	_, present := s.snapshot[key]
+	if !present {
+		return nil
+	}
+
+	value := make([]byte, len(s.snapshot[key]))
+	copy(value, s.snapshot[key])
+	return value
+}
+
 func NewStore() (*Store) {
 	s := &Store{}
 
@@ -206,6 +235,7 @@ func NewStore() (*Store) {
 	s.logs = make([]pb.Log, 1)
 	s.logs[0] = pb.Log{Term:proto.Uint64(0),
 	                   LogId:proto.Uint64(0)}
+	s.snapshot = make(map[string][]byte)
 
 	return s
 }

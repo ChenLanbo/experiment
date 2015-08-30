@@ -92,7 +92,7 @@ func (processor *LeaderRequestProcessor) ProcessOnce() bool {
 		reply.Success = proto.Bool(false)
 		reply.Term = proto.Uint64(store.CurrentTerm())
 
-		op.Callback <- *NewRaftReply(nil, reply, nil)
+		op.Callback <- *WithAppendReply(EmptyRaftReply(), reply)
 
 		if store.CurrentTerm() < op.Request.AppendRequest.GetTerm() {
 			// I am not leader anymore
@@ -107,7 +107,7 @@ func (processor *LeaderRequestProcessor) ProcessOnce() bool {
 		reply.Granted = proto.Bool(false)
 		reply.Term = proto.Uint64(store.CurrentTerm())
 
-		op.Callback <- *NewRaftReply(reply, nil, nil)
+		op.Callback <- *WithVoteReply(EmptyRaftReply(), reply)
 
 		if store.CurrentTerm() < op.Request.VoteRequest.GetTerm() {
 			// I am not leader anymore
@@ -123,6 +123,15 @@ func (processor *LeaderRequestProcessor) ProcessOnce() bool {
 		logId := store.WriteKeyValue(
 			*op.Request.PutRequest.Key, op.Request.PutRequest.Value)
 		processor.leader.nodeMaster.inflightRequests[logId] = op
+
+	} else if op.Request.GetRequest != nil {
+
+		value := store.GetKeyValue(op.Request.GetRequest.GetKey())
+		reply := &pb.GetReply{
+			Success:proto.Bool(true),
+			Key:proto.String(op.Request.GetRequest.GetKey()),
+			Value:value}
+		op.Callback <- *WithGetReply(EmptyRaftReply(), reply)
 	}
 
 	return true
@@ -256,7 +265,7 @@ func (committer *LogCommitter) Start() {
 		// Reply all pending put requests
 		reply := &pb.PutReply{Success:proto.Bool(false)}
 		for logId, op := range committer.leader.nodeMaster.inflightRequests {
-			op.Callback <- *NewRaftReply(nil, nil, reply)
+			op.Callback <- *WithPutReply(EmptyRaftReply(), reply)
 			delete(committer.leader.nodeMaster.inflightRequests, logId)
 		}
 	} ()
@@ -289,7 +298,7 @@ func (committer *LogCommitter) CommitOnce() {
 		commitIndex := committer.leader.nodeMaster.store.CommitIndex()
 		for logId, op := range committer.leader.nodeMaster.inflightRequests {
 			if logId <= commitIndex {
-				op.Callback <- *NewRaftReply(nil, nil, reply)
+				op.Callback <- *WithPutReply(EmptyRaftReply(), reply)
 			}
 			delete(committer.leader.nodeMaster.inflightRequests, logId)
 		}

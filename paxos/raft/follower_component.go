@@ -77,7 +77,6 @@ func (processor *FollowerRequestProcessor) ProcessOnce() {
 	op := queue.Pull(time.Millisecond * time.Duration(*queuePullTimeout))
 
 	if op != nil && op.Request.AppendRequest != nil {
-		reply := &pb.AppendReply{}
 
 		if store.CurrentTerm() <= op.Request.AppendRequest.GetTerm() {
 			store.SetCurrentTerm(op.Request.AppendRequest.GetTerm())
@@ -98,12 +97,13 @@ func (processor *FollowerRequestProcessor) ProcessOnce() {
 			}
 		}
 
-		reply.Success = proto.Bool(success)
-		reply.Term = proto.Uint64(store.CurrentTerm())
-		op.Callback <- *NewRaftReply(nil, reply, nil)
+
+		reply := &pb.AppendReply{
+			Success:proto.Bool(success),
+			Term:proto.Uint64(store.CurrentTerm())}
+		op.Callback <- *WithAppendReply(EmptyRaftReply(), reply)
 
 	} else if op != nil && op.Request.VoteRequest != nil {
-		reply := &pb.VoteReply{}
 
 		// If votedLeader is null or candidateId, and candidate's log is at least as up-to-date
 		// as receiver’s log, grant vote.
@@ -131,17 +131,28 @@ func (processor *FollowerRequestProcessor) ProcessOnce() {
 			}
 		}
 
-		reply.Granted = proto.Bool(success)
-		reply.Term = proto.Uint64(store.CurrentTerm())
-		op.Callback <- *NewRaftReply(reply, nil, nil)
+		reply := &pb.VoteReply{
+			Granted:proto.Bool(success),
+			Term:proto.Uint64(store.CurrentTerm())}
+		op.Callback <- *WithVoteReply(EmptyRaftReply(), reply)
 
 	} else if op != nil && op.Request.PutRequest != nil {
+
 		reply := &pb.PutReply{
 			Success:proto.Bool(success),
 			LeaderId:proto.String(processor.follower.nodeMaster.votedLeader)}
-		op.Callback <- *NewRaftReply(nil, nil, reply)
+		op.Callback <- *WithPutReply(EmptyRaftReply(), reply)
+
+	} else if op != nil && op.Request.GetRequest != nil {
+
+		reply := &pb.GetReply{
+			Success:proto.Bool(success),
+			LeaderId:proto.String(processor.follower.nodeMaster.votedLeader),
+			Key:proto.String(op.Request.GetRequest.GetKey())}
+		op.Callback <- *WithGetReply(EmptyRaftReply(), reply)
 	}
 
+	// Check election timeout of leader
 	if op != nil && op.Request.AppendRequest != nil {
 		processor.lastSawAppend = time.Now().UnixNano()
 	} else if time.Now().UnixNano() - processor.lastSawAppend >= int64(time.Second) {

@@ -6,6 +6,7 @@ import (
 	"github.com/golang/mock/gomock"
 	"github.com/chenlanbo/experiment/paxos/raft/test"
 	"time"
+	"reflect"
 )
 
 type LeaderComponentTest struct {
@@ -161,7 +162,7 @@ func TestLeaderLogCommitterCommit(t *testing.T) {
 	}
 }
 
-func TestLeaderProcessPutRequest(t *testing.T) {
+func TestLeaderProcessorHandlePut(t *testing.T) {
 	tt := &LeaderComponentTest{}
 	tt.setUp(t)
 	defer tt.tearDown(t)
@@ -174,7 +175,7 @@ func TestLeaderProcessPutRequest(t *testing.T) {
 	request := &pb.PutRequest{
 		Key:proto.String("abc"),
 		Value:[]byte("abc")}
-	op := NewRaftOperation(NewRaftRequest(nil, nil, request))
+	op := NewRaftOperation(WithPutRequest(EmptyRaftRequest(), request))
 	tt.nodeMaster.OpsQueue.Push(op)
 
 	tt.leader.processor.ProcessOnce()
@@ -190,7 +191,7 @@ func TestLeaderProcessPutRequest(t *testing.T) {
 	}
 }
 
-func TestLeaderProcessVoteRequest(t *testing.T) {
+func TestLeaderProcessorHandleVote(t *testing.T) {
 	tt := &LeaderComponentTest{}
 	tt.setUp(t)
 	defer tt.tearDown(t)
@@ -200,7 +201,7 @@ func TestLeaderProcessVoteRequest(t *testing.T) {
 		CandidateId:proto.String(tt.peers[1]),
 		LastLogTerm:proto.Uint64(0),
 		LastLogIndex:proto.Uint64(0)}
-	op1 := NewRaftOperation(NewRaftRequest(request1, nil, nil))
+	op1 := NewRaftOperation(WithVoteRequest(EmptyRaftRequest(), request1))
 	tt.nodeMaster.OpsQueue.Push(op1)
 
 	if !tt.leader.processor.ProcessOnce() {
@@ -217,7 +218,7 @@ func TestLeaderProcessVoteRequest(t *testing.T) {
 		CandidateId:proto.String(tt.peers[1]),
 		LastLogTerm:proto.Uint64(0),
 		LastLogIndex:proto.Uint64(0)}
-	op2 := NewRaftOperation(NewRaftRequest(request2, nil, nil))
+	op2 := NewRaftOperation(WithVoteRequest(EmptyRaftRequest(), request2))
 	tt.nodeMaster.OpsQueue.Push(op2)
 
 	if tt.leader.processor.ProcessOnce() {
@@ -231,6 +232,49 @@ func TestLeaderProcessVoteRequest(t *testing.T) {
 
 	newTerm := <- tt.leader.newTermChan
 	if newTerm != 2 {
+		t.Fail()
+	}
+}
+
+func TestLeaderProcessorHandleGet(t *testing.T) {
+	tt := &LeaderComponentTest{}
+	tt.setUp(t)
+	defer tt.tearDown(t)
+
+	appendReply := &pb.AppendReply{
+		Success:proto.Bool(true),
+		Term:proto.Uint64(1)}
+	tt.mockExchange.EXPECT().Append(gomock.Any(), gomock.Any()).Return(appendReply, nil).AnyTimes()
+
+	putRequest := &pb.PutRequest{
+		Key:proto.String("abc"),
+		Value:[]byte("abc")}
+	op1 := NewRaftOperation(WithPutRequest(EmptyRaftRequest(), putRequest))
+	defer close(op1.Callback)
+	tt.nodeMaster.OpsQueue.Push(op1)
+
+	tt.leader.processor.ProcessOnce()
+	tt.leader.replicators[0].ReplicateOnce()
+	tt.leader.committer.CommitOnce()
+
+	reply := <- op1.Callback
+	if reply.PutReply == nil || !reply.PutReply.GetSuccess() {
+		t.Fail()
+	}
+
+	getRequest := &pb.GetRequest{
+		Key:proto.String("abc")}
+	op2 := NewRaftOperation(WithGetRequest(EmptyRaftRequest(), getRequest))
+	defer close(op2.Callback)
+	tt.nodeMaster.OpsQueue.Push(op2)
+
+	tt.leader.processor.ProcessOnce()
+
+	reply = <- op2.Callback
+	if reply.GetReply == nil || !reply.GetReply.GetSuccess() {
+		t.Fail()
+	}
+	if !reflect.DeepEqual([]byte("abc"), reply.GetReply.GetValue()) {
 		t.Fail()
 	}
 }
@@ -253,7 +297,7 @@ func TestLeaderRun(t *testing.T) {
 	request := &pb.PutRequest{
 		Key:proto.String("abc"),
 		Value:[]byte("abc")}
-	op := NewRaftOperation(NewRaftRequest(nil, nil, request))
+	op := NewRaftOperation(WithPutRequest(EmptyRaftRequest(), request))
 	tt.nodeMaster.OpsQueue.Push(op)
 
 	reply := <- op.Callback
@@ -296,7 +340,7 @@ func TestLeaderRun2(t *testing.T) {
 		CandidateId:proto.String(tt.peers[1]),
 		LastLogTerm:proto.Uint64(0),
 		LastLogIndex:proto.Uint64(0)}
-	op := NewRaftOperation(NewRaftRequest(request, nil, nil))
+	op := NewRaftOperation(WithVoteRequest(EmptyRaftRequest(), request))
 	tt.nodeMaster.OpsQueue.Push(op)
 
 	reply := <- op.Callback
@@ -324,7 +368,7 @@ func TestLeaderRun3(t *testing.T) {
 	request := &pb.PutRequest{
 		Key:proto.String("abc"),
 		Value:[]byte("abc")}
-	op := NewRaftOperation(NewRaftRequest(nil, nil, request))
+	op := NewRaftOperation(WithPutRequest(EmptyRaftRequest(), request))
 	tt.nodeMaster.OpsQueue.Push(op)
 
 	go func() {

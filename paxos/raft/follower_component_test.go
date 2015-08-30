@@ -70,7 +70,7 @@ func TestFollowerProcessorHandleVote(t *testing.T) {
 		CandidateId:proto.String(tt.peers[1]),
 		LastLogTerm:proto.Uint64(0),
 		LastLogIndex:proto.Uint64(0)}
-	op1 := NewRaftOperation(NewRaftRequest(voteRequest1, nil, nil))
+	op1 := NewRaftOperation(WithVoteRequest(EmptyRaftRequest(), voteRequest1))
 	defer close(op1.Callback)
 	tt.nodeMaster.OpsQueue.Push(op1)
 
@@ -90,7 +90,7 @@ func TestFollowerProcessorHandleVote(t *testing.T) {
 	}
 
 	// The same vote request should also succeed
-	op2 := NewRaftOperation(NewRaftRequest(voteRequest1, nil, nil))
+	op2 := NewRaftOperation(WithVoteRequest(EmptyRaftRequest(), voteRequest1))
 	defer close(op2.Callback)
 	tt.nodeMaster.OpsQueue.Push(op2)
 
@@ -112,7 +112,7 @@ func TestFollowerProcessorHandleVote(t *testing.T) {
 		CandidateId:proto.String(tt.peers[2]),
 		LastLogTerm:proto.Uint64(0),
 		LastLogIndex:proto.Uint64(0)}
-	op3 := NewRaftOperation(NewRaftRequest(voteRequest2, nil, nil))
+	op3 := NewRaftOperation(WithVoteRequest(EmptyRaftRequest(), voteRequest2))
 	defer close(op3.Callback)
 	tt.nodeMaster.OpsQueue.Push(op3)
 
@@ -126,7 +126,7 @@ func TestFollowerProcessorHandleVote(t *testing.T) {
 	}
 }
 
-func TestFollowerProcessorHandleVoteLogNotUpToDate(t *testing.T) {
+func TestFollowerProcessorHandleVoteWithLogNotUpToDate(t *testing.T) {
 	tt := &FollowerComponentTest{}
 	tt.setUp(t)
 	defer tt.tearDown(t)
@@ -141,7 +141,7 @@ func TestFollowerProcessorHandleVoteLogNotUpToDate(t *testing.T) {
 		CandidateId:proto.String(tt.peers[2]),
 		LastLogTerm:proto.Uint64(1),
 		LastLogIndex:proto.Uint64(1)}
-	op1 := NewRaftOperation(NewRaftRequest(voteRequest1, nil, nil))
+	op1 := NewRaftOperation(WithVoteRequest(EmptyRaftRequest(), voteRequest1))
 	defer close(op1.Callback)
 	tt.nodeMaster.OpsQueue.Push(op1)
 
@@ -157,7 +157,7 @@ func TestFollowerProcessorHandleVoteLogNotUpToDate(t *testing.T) {
 		CandidateId:proto.String(tt.peers[2]),
 		LastLogTerm:proto.Uint64(1),
 		LastLogIndex:proto.Uint64(2)}
-	op2 := NewRaftOperation(NewRaftRequest(voteRequest2, nil, nil))
+	op2 := NewRaftOperation(WithVoteRequest(EmptyRaftRequest(), voteRequest2))
 	defer close(op2.Callback)
 	tt.nodeMaster.OpsQueue.Push(op2)
 
@@ -176,7 +176,7 @@ func TestFollowerProcessorHandleVoteLogNotUpToDate(t *testing.T) {
 		CandidateId:proto.String(tt.peers[2]),
 		LastLogTerm:proto.Uint64(1),
 		LastLogIndex:proto.Uint64(3)}
-	op3 := NewRaftOperation(NewRaftRequest(voteRequest3, nil, nil))
+	op3 := NewRaftOperation(WithVoteRequest(EmptyRaftRequest(), voteRequest3))
 	defer close(op3.Callback)
 	tt.nodeMaster.OpsQueue.Push(op3)
 
@@ -202,7 +202,7 @@ func TestFollowerProcessorHandleAppend(t *testing.T) {
 			&pb.Log{Term:proto.Uint64(1), LogId:proto.Uint64(1)},
 			&pb.Log{Term:proto.Uint64(1), LogId:proto.Uint64(2)}}}
 
-	op := NewRaftOperation(NewRaftRequest(nil, appendRequest, nil))
+	op := NewRaftOperation(WithAppendRequest(EmptyRaftRequest(), appendRequest))
 	tt.nodeMaster.OpsQueue.Push(op)
 
 	tt.processor.ProcessOnce()
@@ -246,7 +246,7 @@ func TestFollowerProcessorReplicateFromPreviousLog(t *testing.T) {
 			&pb.Log{Term:proto.Uint64(newTerm), LogId:proto.Uint64(uint64(n + 1))},
 			&pb.Log{Term:proto.Uint64(newTerm), LogId:proto.Uint64(uint64(n + 2))}}}
 
-	op1 := NewRaftOperation(NewRaftRequest(nil, appendRequest1, nil))
+	op1 := NewRaftOperation(WithAppendRequest(EmptyRaftRequest(), appendRequest1))
 	tt.nodeMaster.OpsQueue.Push(op1)
 
 	tt.processor.ProcessOnce()
@@ -266,7 +266,7 @@ func TestFollowerProcessorReplicateFromPreviousLog(t *testing.T) {
 			&pb.Log{Term:proto.Uint64(newTerm), LogId:proto.Uint64(uint64(n))},
 			&pb.Log{Term:proto.Uint64(newTerm), LogId:proto.Uint64(uint64(n + 1))}}}
 
-	op2 := NewRaftOperation(NewRaftRequest(nil, appendRequest2, nil))
+	op2 := NewRaftOperation(WithAppendRequest(EmptyRaftRequest(), appendRequest2))
 	tt.nodeMaster.OpsQueue.Push(op2)
 
 	tt.processor.ProcessOnce()
@@ -290,7 +290,7 @@ func TestFollowerProcessorHandlePut(t *testing.T) {
 
 	putRequest := &pb.PutRequest{
 		Key:proto.String("abc"), Value:[]byte("abc")}
-	op := NewRaftOperation(NewRaftRequest(nil, nil, putRequest))
+	op := NewRaftOperation(WithPutRequest(EmptyRaftRequest(), putRequest))
 	defer close(op.Callback)
 	tt.nodeMaster.OpsQueue.Push(op)
 
@@ -298,6 +298,24 @@ func TestFollowerProcessorHandlePut(t *testing.T) {
 	reply := <- op.Callback
 	if reply.PutReply == nil || reply.PutReply.GetSuccess() {
 		t.Error("Put should not succeed")
+	}
+}
+
+func TestFollowerProcessorHandleGet(t *testing.T) {
+	tt := FollowerComponentTest{}
+	tt.setUp(t)
+	defer tt.tearDown(t)
+
+	getRequest := &pb.GetRequest{
+		Key:proto.String("abc")}
+	op := NewRaftOperation(WithGetRequest(EmptyRaftRequest(), getRequest))
+	defer close(op.Callback)
+	tt.nodeMaster.OpsQueue.Push(op)
+
+	tt.processor.ProcessOnce()
+	reply := <- op.Callback
+	if reply.GetReply == nil || reply.GetReply.GetSuccess() {
+		t.Error("Get should not succeed")
 	}
 }
 
@@ -329,7 +347,7 @@ func TestFollowerStop(t *testing.T) {
 		PrevLogTerm:proto.Uint64(0),
 		CommitIndex:proto.Uint64(0)}
 	for i := 0; i < 10; i++ {
-		op := NewRaftOperation(NewRaftRequest(nil, appendRequest, nil))
+		op := NewRaftOperation(WithAppendRequest(EmptyRaftRequest(), appendRequest))
 		defer close(op.Callback)
 		tt.nodeMaster.OpsQueue.Push(op)
 		reply := <- op.Callback

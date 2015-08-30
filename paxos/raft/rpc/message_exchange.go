@@ -15,6 +15,8 @@ type MessageExchange interface {
 	Append(peer string, request *pb.AppendRequest) (*pb.AppendReply, error)
 
 	Put(peer string, request *pb.PutRequest) (*pb.PutReply, error)
+
+	Get(peer string, request *pb.GetRequest) (*pb.GetReply, error)
 }
 
 type MessageExchangeImpl struct {}
@@ -71,6 +73,26 @@ func (hub MessageExchangeImpl) Put(peer string, request *pb.PutRequest) (*pb.Put
 	ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond * 500)
 	defer cancel()
 	reply, err1 := c.Put(ctx, request)
+	if err1 != nil {
+		log.Println(err1)
+		return nil, err1
+	}
+
+	return reply, nil
+}
+
+func (hub MessageExchangeImpl) Get(peer string, request *pb.GetRequest) (*pb.GetReply, error) {
+	conn, err := grpc.Dial(peer, grpc.WithTimeout(time.Second * 2))
+	if err != nil {
+		log.Println(err)
+		return nil, err
+	}
+	defer conn.Close()
+
+	c := pb.NewRaftClient(conn)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond * 500)
+	defer cancel()
+	reply, err1 := c.Get(ctx, request)
 	if err1 != nil {
 		log.Println(err1)
 		return nil, err1

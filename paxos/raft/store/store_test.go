@@ -3,6 +3,7 @@ import (
 	"testing"
 	pb "github.com/chenlanbo/experiment/paxos/protos"
 	"github.com/golang/protobuf/proto"
+	"reflect"
 )
 
 func TestAppend(t *testing.T) {
@@ -76,6 +77,49 @@ func TestPoll(t *testing.T) {
 	l = store.Poll(6)
 	if l != nil {
 		t.Fatal("error")
+		t.Fail()
+	}
+}
+
+func TestCommit(t *testing.T) {
+	store := NewStore()
+
+	store.IncrementCurrentTerm()
+	store.WriteKeyValue("abc", []byte("abc"))
+	store.SetCommitIndex(store.LatestIndex())
+
+	value := store.GetKeyValue("abc")
+	if value == nil || !reflect.DeepEqual([]byte("abc"), value) {
+		t.Fail()
+	}
+
+	logs := make([]pb.Log, 0)
+	logs = append(
+		logs,
+		pb.Log{
+			Term:proto.Uint64(1),
+			LogId:proto.Uint64(2),
+			Data:&pb.Log_Data{
+				Key:proto.String("key1"),
+				Value:[]byte("value1")}})
+	logs = append(
+		logs,
+		pb.Log{
+			Term:proto.Uint64(1),
+			LogId:proto.Uint64(3),
+			Data:&pb.Log_Data{
+				Key:proto.String("key2"),
+				Value:[]byte("value2")}})
+	store.Append(1, logs)
+	store.Append(3, make([]pb.Log, 0))
+
+	value = store.GetKeyValue("key1")
+	if value == nil || !reflect.DeepEqual([]byte("value1"), value) {
+		t.Fail()
+	}
+
+	value = store.GetKeyValue("key2")
+	if value == nil || !reflect.DeepEqual([]byte("value2"), value) {
 		t.Fail()
 	}
 }

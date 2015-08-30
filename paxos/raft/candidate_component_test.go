@@ -129,7 +129,7 @@ func TestCandidateVoteNoPeersGranted(t *testing.T) {
 	}
 }
 
-func TestCandidateProcessPutRequest(t *testing.T) {
+func TestCandidateProcessorHandlePut(t *testing.T) {
 	tt := &CandidateComponentTest{}
 	tt.setUp(t, peers1)
 	defer tt.tearDown(t)
@@ -143,7 +143,7 @@ func TestCandidateProcessPutRequest(t *testing.T) {
 	request := &pb.PutRequest{
 		Key:proto.String("abc"),
 		Value:[]byte("abc")}
-	op := NewRaftOperation(NewRaftRequest(nil, nil, request))
+	op := NewRaftOperation(WithPutRequest(EmptyRaftRequest(), request))
 	tt.nodeMaster.OpsQueue.Push(op)
 
 	reply := <- op.Callback
@@ -157,7 +157,7 @@ func TestCandidateProcessPutRequest(t *testing.T) {
 	}
 }
 
-func TestCandidateProcessVoteRequest(t *testing.T) {
+func TestCandidateProcessorHandleVote(t *testing.T) {
 	tt := &CandidateComponentTest{}
 	tt.setUp(t, peers1)
 	defer tt.tearDown(t)
@@ -173,7 +173,7 @@ func TestCandidateProcessVoteRequest(t *testing.T) {
 		CandidateId:proto.String(tt.peers[1]),
 		LastLogTerm:proto.Uint64(0),
 		LastLogIndex:proto.Uint64(0)}
-	op1 := NewRaftOperation(NewRaftRequest(request1, nil, nil))
+	op1 := NewRaftOperation(WithVoteRequest(EmptyRaftRequest(), request1))
 	tt.nodeMaster.OpsQueue.Push(op1)
 
 	reply1 := <- op1.Callback
@@ -186,7 +186,7 @@ func TestCandidateProcessVoteRequest(t *testing.T) {
 		CandidateId:proto.String(tt.peers[1]),
 		LastLogTerm:proto.Uint64(0),
 		LastLogIndex:proto.Uint64(0)}
-	op2 := NewRaftOperation(NewRaftRequest(request2, nil, nil))
+	op2 := NewRaftOperation(WithVoteRequest(EmptyRaftRequest(), request2))
 	tt.nodeMaster.OpsQueue.Push(op2)
 
 	reply2 := <- op2.Callback
@@ -204,7 +204,7 @@ func TestCandidateProcessVoteRequest(t *testing.T) {
 	}
 }
 
-func TestCandidateProcessAppendRequest(t *testing.T) {
+func TestCandidateProcessorHandleAppend(t *testing.T) {
 	tt := &CandidateComponentTest{}
 	tt.setUp(t, peers1)
 	defer tt.tearDown(t)
@@ -221,7 +221,8 @@ func TestCandidateProcessAppendRequest(t *testing.T) {
 		PrevLogTerm:proto.Uint64(0),
 		PrevLogIndex:proto.Uint64(0),
 		Logs:make([]*pb.Log, 0)}
-	op := NewRaftOperation(NewRaftRequest(nil, request, nil))
+	op := NewRaftOperation(WithAppendRequest(EmptyRaftRequest(), request))
+	defer close(op.Callback)
 	tt.nodeMaster.OpsQueue.Push(op)
 
 	reply := <- op.Callback
@@ -237,6 +238,31 @@ func TestCandidateProcessAppendRequest(t *testing.T) {
 	if !processor.Stopped() {
 		t.Fail()
 	}
+}
+
+func TestCandidateProcessorHandleGet(t *testing.T) {
+	tt := &CandidateComponentTest{}
+	tt.setUp(t, peers1)
+	defer tt.tearDown(t)
+
+	tt.nodeMaster.store.IncrementCurrentTerm()
+	newTerm := tt.nodeMaster.store.CurrentTerm()
+
+	processor := NewCandidateRequestProcessor(tt.candidate)
+	processor.ProcessRequestsAtTerm(newTerm)
+
+	request := &pb.GetRequest{
+		Key:proto.String("abc")}
+	op := NewRaftOperation(WithGetRequest(EmptyRaftRequest(), request))
+	defer close(op.Callback)
+	tt.nodeMaster.OpsQueue.Push(op)
+
+	reply := <- op.Callback
+	if reply.GetReply == nil || reply.GetReply.GetSuccess() {
+		t.Fail()
+	}
+
+	processor.Stop()
 }
 
 func TestCandidateRun(t *testing.T) {

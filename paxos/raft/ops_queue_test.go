@@ -18,7 +18,7 @@ func TestOpsQueue(t *testing.T) {
     voteReply := &pb.VoteReply{Granted:proto.Bool(true),
                                    Term:proto.Uint64(1)}
 
-	op := NewRaftOperation(NewRaftRequest(voteRequest, nil, nil))
+	op := NewRaftOperation(WithVoteRequest(EmptyRaftRequest(), voteRequest))
 
 	queue.Push(op)
 
@@ -35,7 +35,7 @@ func TestOpsQueue(t *testing.T) {
 
 
     t.Log("Send reply")
-    pulledOp.Callback <- *NewRaftReply(voteReply, nil, nil)
+    pulledOp.Callback <- *WithVoteReply(EmptyRaftReply(), voteReply)
 
     reply := <-pulledOp.Callback
     if reply.VoteReply == nil {
