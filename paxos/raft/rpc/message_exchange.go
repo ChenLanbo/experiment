@@ -22,7 +22,8 @@ type MessageExchange interface {
 type MessageExchangeImpl struct {}
 
 func (hub MessageExchangeImpl) Vote(peer string, request *pb.VoteRequest) (*pb.VoteReply, error) {
-	conn, err := grpc.Dial(peer, grpc.WithTimeout(time.Second * 2))
+	conn, err := grpc.Dial(peer,
+		grpc.WithInsecure(), grpc.WithTimeout(time.Second * 2))
 	if err != nil {
 		log.Println(err)
 		return nil, err
@@ -42,7 +43,8 @@ func (hub MessageExchangeImpl) Vote(peer string, request *pb.VoteRequest) (*pb.V
 }
 
 func (hub MessageExchangeImpl) Append(peer string, request *pb.AppendRequest) (*pb.AppendReply, error) {
-	conn, err := grpc.Dial(peer, grpc.WithTimeout(time.Second * 2))
+	conn, err := grpc.Dial(peer,
+		grpc.WithInsecure(), grpc.WithTimeout(time.Second * 2))
 	if err != nil {
 		log.Println(err)
 		return nil, err
@@ -62,7 +64,8 @@ func (hub MessageExchangeImpl) Append(peer string, request *pb.AppendRequest) (*
 }
 
 func (hub MessageExchangeImpl) Put(peer string, request *pb.PutRequest) (*pb.PutReply, error) {
-	conn, err := grpc.Dial(peer, grpc.WithTimeout(time.Second * 2))
+	conn, err := grpc.Dial(peer,
+		grpc.WithInsecure(), grpc.WithTimeout(time.Second * 2))
 	if err != nil {
 		log.Println(err)
 		return nil, err
@@ -82,7 +85,8 @@ func (hub MessageExchangeImpl) Put(peer string, request *pb.PutRequest) (*pb.Put
 }
 
 func (hub MessageExchangeImpl) Get(peer string, request *pb.GetRequest) (*pb.GetReply, error) {
-	conn, err := grpc.Dial(peer, grpc.WithTimeout(time.Second * 2))
+	conn, err := grpc.Dial(peer,
+		grpc.WithInsecure(), grpc.WithTimeout(time.Second * 2))
 	if err != nil {
 		log.Println(err)
 		return nil, err
