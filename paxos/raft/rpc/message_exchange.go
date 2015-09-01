@@ -25,7 +25,7 @@ func (hub MessageExchangeImpl) Vote(peer string, request *pb.VoteRequest) (*pb.V
 	conn, err := grpc.Dial(peer,
 		grpc.WithInsecure(), grpc.WithTimeout(time.Second * 2))
 	if err != nil {
-		log.Println(err)
+		log.Println("Fail to send vote to", peer, err)
 		return nil, err
 	}
 	defer conn.Close()
@@ -33,6 +33,7 @@ func (hub MessageExchangeImpl) Vote(peer string, request *pb.VoteRequest) (*pb.V
 	c := pb.NewRaftClient(conn)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond * 500)
 	defer cancel()
+	// log.Println("Send vote to", peer)
 	reply, err1 := c.Vote(ctx, request)
 	if err1 != nil {
 		log.Println(err1)
@@ -46,7 +47,7 @@ func (hub MessageExchangeImpl) Append(peer string, request *pb.AppendRequest) (*
 	conn, err := grpc.Dial(peer,
 		grpc.WithInsecure(), grpc.WithTimeout(time.Second * 2))
 	if err != nil {
-		log.Println(err)
+		log.Println("Fail to send append to", peer, err)
 		return nil, err
 	}
 	defer conn.Close()
@@ -54,6 +55,7 @@ func (hub MessageExchangeImpl) Append(peer string, request *pb.AppendRequest) (*
 	c := pb.NewRaftClient(conn)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond * 500)
 	defer cancel()
+	// log.Println("Send append to", peer)
 	reply, err1 := c.Append(ctx, request)
 	if err1 != nil {
 		log.Println(err1)
@@ -67,7 +69,7 @@ func (hub MessageExchangeImpl) Put(peer string, request *pb.PutRequest) (*pb.Put
 	conn, err := grpc.Dial(peer,
 		grpc.WithInsecure(), grpc.WithTimeout(time.Second * 2))
 	if err != nil {
-		log.Println(err)
+		log.Println("Fail to send put to", peer, err)
 		return nil, err
 	}
 	defer conn.Close()
@@ -75,6 +77,7 @@ func (hub MessageExchangeImpl) Put(peer string, request *pb.PutRequest) (*pb.Put
 	c := pb.NewRaftClient(conn)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond * 500)
 	defer cancel()
+	// log.Println("Send put to", peer)
 	reply, err1 := c.Put(ctx, request)
 	if err1 != nil {
 		log.Println(err1)
@@ -88,7 +91,7 @@ func (hub MessageExchangeImpl) Get(peer string, request *pb.GetRequest) (*pb.Get
 	conn, err := grpc.Dial(peer,
 		grpc.WithInsecure(), grpc.WithTimeout(time.Second * 2))
 	if err != nil {
-		log.Println(err)
+		log.Println("Fail to send get to", peer, err)
 		return nil, err
 	}
 	defer conn.Close()
@@ -96,6 +99,7 @@ func (hub MessageExchangeImpl) Get(peer string, request *pb.GetRequest) (*pb.Get
 	c := pb.NewRaftClient(conn)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond * 500)
 	defer cancel()
+	// log.Println("Send get to", peer)
 	reply, err1 := c.Get(ctx, request)
 	if err1 != nil {
 		log.Println(err1)

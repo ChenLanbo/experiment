@@ -199,7 +199,7 @@ func (voter *CandidateVoter) VoteSelfAtTerm(newTerm, lastLogTerm, lastLogIndex u
 
 			reply, err := voter.candidate.nodeMaster.Exchange.Vote(peer, request)
 			if err != nil {
-				log.Println(err)
+				log.Println("Not granted from", peer, err)
 				continue
 			}
 
